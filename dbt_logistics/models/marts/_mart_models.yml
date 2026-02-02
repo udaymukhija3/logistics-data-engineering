@@ -1,0 +1,124 @@
+version: 2
+
+models:
+  # Common Dimensions
+  - name: dim_time
+    description: "Date/time dimension table for analytics"
+    columns:
+      - name: date_key
+        description: "Primary key (date)"
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_hubs
+    description: "Hub master data dimension"
+    columns:
+      - name: hub_id
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+      - name: hub_type
+        description: "Hub classification"
+        tests:
+          - accepted_values:
+              values: ['MEGA', 'REGIONAL', 'LOCAL']
+
+  # Fleet Facts
+  - name: fct_trips
+    description: "Vehicle trip fact table"
+    columns:
+      - name: trip_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: trip_id
+        description: "Natural key"
+        tests:
+          - not_null
+      - name: total_distance_km
+        description: "Total trip distance in kilometers"
+      - name: trip_duration_minutes
+        description: "Trip duration in minutes"
+
+  - name: fct_driver_performance
+    description: "Driver daily performance fact table"
+    columns:
+      - name: performance_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: safety_score
+        description: "Driver safety score (0-100)"
+      - name: utilization_rate
+        description: "Time spent moving vs total time"
+
+  # Shipment Facts
+  - name: fct_shipments
+    description: "Shipment journey fact table"
+    columns:
+      - name: shipment_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: shipment_id
+        description: "Natural key"
+        tests:
+          - not_null
+      - name: sla_status
+        description: "SLA compliance status"
+        tests:
+          - accepted_values:
+              values: ['MET', 'BREACHED', 'FAILED', 'IN_PROGRESS']
+      - name: journey_outcome
+        description: "Final journey outcome"
+        tests:
+          - accepted_values:
+              values: ['DELIVERED', 'FAILED', 'RETURNED', 'STUCK', 'IN_TRANSIT']
+
+  - name: fct_hub_daily
+    description: "Hub daily throughput fact table"
+    columns:
+      - name: hub_daily_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: efficiency_rating
+        description: "Hub efficiency rating"
+        tests:
+          - accepted_values:
+              values: ['HIGH', 'MEDIUM', 'LOW']
+
+  # Delivery Facts
+  - name: fct_agent_daily
+    description: "Delivery agent daily performance fact table"
+    columns:
+      - name: agent_daily_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: performance_tier
+        description: "Agent performance classification"
+        tests:
+          - accepted_values:
+              values: ['TOP_PERFORMER', 'GOOD', 'AVERAGE', 'BELOW_AVERAGE']
+
+  - name: fct_zone_daily
+    description: "Delivery zone daily performance fact table"
+    columns:
+      - name: zone_daily_key
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: zone_performance_tier
+        description: "Zone performance classification"
+        tests:
+          - accepted_values:
+              values: ['EXCELLENT', 'GOOD', 'AVERAGE', 'NEEDS_IMPROVEMENT']

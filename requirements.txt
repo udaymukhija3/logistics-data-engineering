@@ -1,0 +1,48 @@
+# =============================================================================
+# Unified Logistics Data Platform - Requirements
+# =============================================================================
+
+# Core
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+
+# Kafka
+kafka-python>=2.0.2
+
+# Spark (install separately for production)
+pyspark>=3.5.0
+# delta-spark>=3.0.0  # Included as Spark package
+
+# dbt
+dbt-core>=1.7.0
+dbt-duckdb>=1.7.0
+
+# Database
+duckdb>=0.9.0
+sqlalchemy>=2.0.0
+
+# Visualization
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.18.0
+
+# Dashboard
+streamlit>=1.29.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0.0
+tqdm>=4.66.0
+
+# Development
+black>=23.0.0
+isort>=5.12.0
+
+# Jupyter
+jupyter>=1.0.0
+ipykernel>=6.0.0

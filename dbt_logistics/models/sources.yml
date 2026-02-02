@@ -1,0 +1,144 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Bronze layer - raw data from Kafka ingestion"
+    schema: main  # DuckDB default schema
+    tables:
+      - name: vehicle_positions
+        description: "Raw GPS positions from fleet vehicles"
+        columns:
+          - name: event_id
+            description: "Unique event identifier"
+          - name: vehicle_id
+            description: "Vehicle identifier"
+          - name: driver_id
+            description: "Driver identifier"
+          - name: timestamp
+            description: "Event timestamp"
+          - name: latitude
+            description: "GPS latitude"
+          - name: longitude
+            description: "GPS longitude"
+          - name: speed_kmh
+            description: "Speed in km/h"
+          - name: heading
+            description: "Heading in degrees"
+          - name: trip_id
+            description: "Current trip ID if on trip"
+          - name: state
+            description: "Vehicle state (IDLE, MOVING, STOPPED)"
+          - name: fuel_level_pct
+            description: "Fuel level percentage"
+
+      - name: vehicle_telemetry
+        description: "OBD-II telemetry data from vehicles"
+        columns:
+          - name: event_id
+            description: "Unique event identifier"
+          - name: vehicle_id
+            description: "Vehicle identifier"
+          - name: timestamp
+            description: "Event timestamp"
+          - name: engine_rpm
+            description: "Engine RPM"
+          - name: engine_temp_c
+            description: "Engine temperature in Celsius"
+          - name: fuel_level_pct
+            description: "Fuel level percentage"
+
+      - name: shipment_events
+        description: "Shipment tracking scan events"
+        columns:
+          - name: event_id
+            description: "Unique event identifier"
+          - name: shipment_id
+            description: "Shipment identifier"
+          - name: awb_number
+            description: "Air waybill number"
+          - name: timestamp
+            description: "Event timestamp"
+          - name: event_type
+            description: "Event type (CREATED, PICKED_UP, HUB_ARRIVED, etc.)"
+          - name: hub_id
+            description: "Hub identifier where event occurred"
+          - name: hub_name
+            description: "Hub name"
+          - name: seller_id
+            description: "Seller identifier"
+          - name: customer_id
+            description: "Customer identifier"
+          - name: promised_delivery
+            description: "Promised delivery date"
+
+      - name: agent_positions
+        description: "GPS positions from delivery agents"
+        columns:
+          - name: event_id
+            description: "Unique event identifier"
+          - name: agent_id
+            description: "Agent identifier"
+          - name: timestamp
+            description: "Event timestamp"
+          - name: latitude
+            description: "GPS latitude"
+          - name: longitude
+            description: "GPS longitude"
+          - name: speed_kmh
+            description: "Speed in km/h"
+          - name: zone_id
+            description: "Delivery zone identifier"
+          - name: is_at_stop
+            description: "Whether agent is stopped"
+
+      - name: delivery_events
+        description: "Delivery attempt and completion events"
+        columns:
+          - name: event_id
+            description: "Unique event identifier"
+          - name: event_type
+            description: "Event type (DELIVERED, DELIVERY_ATTEMPTED, DELIVERY_FAILED)"
+          - name: agent_id
+            description: "Agent identifier"
+          - name: order_id
+            description: "Order identifier"
+          - name: shipment_id
+            description: "Shipment identifier"
+          - name: is_cod
+            description: "Whether cash on delivery"
+          - name: cod_amount
+            description: "COD amount if applicable"
+          - name: failure_reason
+            description: "Failure reason if applicable"
+          - name: customer_rating
+            description: "Customer rating (1-5)"
+
+      - name: alerts
+        description: "System alerts and driving events"
+        columns:
+          - name: event_id
+            description: "Unique event identifier"
+          - name: event_type
+            description: "Alert type (SPEEDING, HARSH_BRAKING, etc.)"
+          - name: severity
+            description: "Alert severity"
+          - name: vehicle_id
+            description: "Vehicle identifier"
+          - name: timestamp
+            description: "Event timestamp"
+
+  - name: silver
+    description: "Silver layer - processed and aggregated data"
+    schema: main
+    tables:
+      - name: trips
+        description: "Reconstructed vehicle trips"
+
+      - name: journeys
+        description: "Reconstructed shipment journeys"
+
+      - name: agent_shifts
+        description: "Aggregated agent shift metrics"
+
+      - name: zone_performance
+        description: "Zone-level delivery performance"

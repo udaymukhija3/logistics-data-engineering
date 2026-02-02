@@ -1,0 +1,62 @@
+version: 2
+
+models:
+  - name: stg_agent_positions
+    description: "Cleaned delivery agent GPS positions"
+    columns:
+      - name: event_id
+        description: "Unique event identifier"
+        tests:
+          - unique
+          - not_null
+      - name: agent_id
+        description: "Agent identifier"
+        tests:
+          - not_null
+      - name: latitude
+        description: "GPS latitude"
+        tests:
+          - not_null
+      - name: longitude
+        description: "GPS longitude"
+        tests:
+          - not_null
+      - name: agent_status
+        description: "Current agent status"
+        tests:
+          - accepted_values:
+              values: ['AVAILABLE', 'ON_DELIVERY', 'BREAK', 'OFFLINE']
+
+  - name: stg_delivery_events
+    description: "Cleaned delivery attempt and completion events"
+    columns:
+      - name: event_id
+        description: "Unique event identifier"
+        tests:
+          - unique
+          - not_null
+      - name: agent_id
+        description: "Agent identifier"
+        tests:
+          - not_null
+      - name: order_id
+        description: "Order identifier"
+        tests:
+          - not_null
+      - name: event_type
+        description: "Type of delivery event"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['DELIVERED', 'DELIVERY_ATTEMPTED', 'DELIVERY_FAILED']
+      - name: delivery_outcome
+        description: "Outcome classification"
+        tests:
+          - accepted_values:
+              values: ['SUCCESS', 'FAILED', 'ATTEMPTED', 'OTHER']
+      - name: customer_rating
+        description: "Customer rating (1-5)"
+        tests:
+          - accepted_values:
+              values: [1, 2, 3, 4, 5]
+              quote: false

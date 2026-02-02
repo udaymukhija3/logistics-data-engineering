@@ -1,0 +1,93 @@
+# dbt_logistics/dbt_project.yml
+
+name: 'logistics'
+version: '1.0.0'
+config-version: 2
+
+profile: 'logistics'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  # Date for incremental processing
+  processing_date: "{{ var('date', modules.datetime.date.today().isoformat()) }}"
+  
+  # H3 resolution
+  h3_resolution: 9
+  h3_resolution_coarse: 7
+  
+  # India bounds
+  india_lat_min: 8.0
+  india_lat_max: 37.0
+  india_lng_min: 68.0
+  india_lng_max: 97.5
+  
+  # Thresholds
+  stuck_shipment_hours: 24
+  sla_at_risk_hours: 12
+  speeding_threshold_kmh: 80
+  hub_bottleneck_hours: 12
+
+models:
+  logistics:
+    # Staging models (views, 1:1 with source)
+    staging:
+      +materialized: view
+      +schema: staging
+      +tags: ['staging']
+      
+    # Intermediate models (ephemeral or table)
+    intermediate:
+      +materialized: table
+      +schema: intermediate
+      +tags: ['intermediate']
+      
+    # Mart models (tables, optimized for analytics)
+    marts:
+      +materialized: table
+      +schema: marts
+      +tags: ['marts']
+      
+      core:
+        +tags: ['core', 'dimensions']
+        
+      fleet:
+        +tags: ['fleet']
+        
+      shipments:
+        +tags: ['shipments']
+        
+      delivery:
+        +tags: ['delivery']
+
+seeds:
+  logistics:
+    +schema: seeds
+    ref_hubs:
+      +column_types:
+        hub_id: varchar(20)
+        latitude: decimal(10,6)
+        longitude: decimal(10,6)
+    ref_sla_definitions:
+      +column_types:
+        promised_days: integer
+
+tests:
+  +severity: warn
+  +store_failures: true
+
+on-run-start:
+  - "{{ log('Starting dbt run for logistics platform', info=True) }}"
+
+on-run-end:
+  - "{{ log('Completed dbt run for logistics platform', info=True) }}"

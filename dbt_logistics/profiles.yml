@@ -1,0 +1,14 @@
+# dbt_logistics/profiles.yml
+
+logistics:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: '/opt/airflow/data/warehouse/logistics.duckdb'
+      threads: 4
+      
+    prod:
+      type: duckdb
+      path: '/opt/airflow/data/warehouse/logistics_prod.duckdb'
+      threads: 8

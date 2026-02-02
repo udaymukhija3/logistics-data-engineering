@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  - name: stg_vehicle_positions
+    description: "Cleaned and standardized vehicle GPS positions"
+    columns:
+      - name: event_id
+        description: "Unique event identifier"
+        tests:
+          - unique
+          - not_null
+      - name: vehicle_id
+        description: "Vehicle identifier"
+        tests:
+          - not_null
+      - name: latitude
+        description: "GPS latitude"
+        tests:
+          - not_null
+      - name: longitude
+        description: "GPS longitude"
+        tests:
+          - not_null
+      - name: speed_kmh
+        description: "Speed in km/h"
+      - name: vehicle_state
+        description: "Current vehicle state"
+        tests:
+          - accepted_values:
+              values: ['IDLE', 'MOVING', 'STOPPED']
+
+  - name: stg_vehicle_telemetry
+    description: "Cleaned vehicle telemetry readings"
+    columns:
+      - name: event_id
+        description: "Unique event identifier"
+        tests:
+          - unique
+          - not_null
+      - name: vehicle_id
+        description: "Vehicle identifier"
+        tests:
+          - not_null
+      - name: engine_temp_status
+        description: "Engine temperature health status"
+        tests:
+          - accepted_values:
+              values: ['NORMAL', 'OVERHEATING', 'COLD_RUNNING']
+
+  - name: stg_alerts
+    description: "Cleaned driving alerts and events"
+    columns:
+      - name: event_id
+        description: "Unique event identifier"
+        tests:
+          - unique
+          - not_null
+      - name: alert_type
+        description: "Type of alert"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['SPEEDING', 'HARSH_BRAKING', 'HARSH_ACCELERATION']
+      - name: severity
+        description: "Alert severity level"
+        tests:
+          - accepted_values:
+              values: ['INFO', 'WARNING', 'HIGH', 'CRITICAL']
