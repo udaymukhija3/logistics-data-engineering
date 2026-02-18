@@ -55,7 +55,6 @@ data/gold/
 data/checkpoints/
 data/quality_reports/
 data/warehouse/
-*.parquet
 *.delta
 
 # =============================================================================

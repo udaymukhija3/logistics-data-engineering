@@ -47,13 +47,6 @@ line_length = 100
 skip_gitignore = true
 skip = ["venv", ".venv", "build", "dist"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --tb=short"
-
 [tool.coverage.run]
 source = ["src"]
 omit = ["*/tests/*", "*/__pycache__/*"]

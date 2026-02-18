@@ -1,29 +1,17 @@
 """
 Logistics Data Platform - Streamlit Dashboard
 
-A simple interactive dashboard to visualize logistics data.
+Interactive dashboard to visualize logistics data.
+Works with both live pipeline data and pre-generated sample data.
 Run with: streamlit run src/dashboard/app.py
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
+import json
 from pathlib import Path
-from datetime import datetime, timedelta
 
-# Try to import visualization libraries
-try:
-    import plotly.express as px
-    import plotly.graph_objects as go
-    PLOTLY_AVAILABLE = True
-except ImportError:
-    PLOTLY_AVAILABLE = False
-
-try:
-    import duckdb
-    DUCKDB_AVAILABLE = True
-except ImportError:
-    DUCKDB_AVAILABLE = False
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 
 # =============================================================================
 # Configuration
@@ -33,463 +21,761 @@ st.set_page_config(
     page_title="Logistics Data Platform",
     page_icon="🚚",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
-BRONZE_DIR = DATA_DIR / "bronze"
-SILVER_DIR = DATA_DIR / "silver"
+ROOT_DIR = Path(__file__).parent.parent.parent
+DATA_DIR = ROOT_DIR / "data"
+SAMPLE_DIR = DATA_DIR / "sample"
+
+
+# Use sample data if live data doesn't exist
+def _resolve_dir(subpath: str) -> Path:
+    live = DATA_DIR / subpath
+    sample = SAMPLE_DIR / subpath
+    if live.exists() and any(live.rglob("*.parquet")):
+        return live
+    return sample
+
+
+BRONZE_DIR_VEHICLES = _resolve_dir("bronze/vehicle_positions")
+BRONZE_DIR_SHIPMENTS = _resolve_dir("bronze/shipment_events")
+BRONZE_DIR_DELIVERY = _resolve_dir("bronze/delivery_events")
+SILVER_DIR_TRIPS = _resolve_dir("silver/fleet/trips")
+SILVER_DIR_JOURNEYS = _resolve_dir("silver/shipment/journeys")
+SILVER_DIR_SHIFTS = _resolve_dir("silver/delivery/agent_shifts")
+
+USING_SAMPLE = str(SAMPLE_DIR) in str(BRONZE_DIR_VEHICLES)
+
+
+def _resolve_quality_dir() -> Path:
+    live = DATA_DIR / "quality_reports"
+    sample = SAMPLE_DIR / "quality_reports"
+    if live.exists() and any(live.glob("*.json")):
+        return live
+    return sample
+
+
+QUALITY_DIR = _resolve_quality_dir()
 
 
 # =============================================================================
-# Data Loading Functions
+# Data Loading
 # =============================================================================
 
-@st.cache_data(ttl=60)
-def load_parquet_data(path: str) -> pd.DataFrame:
-    """Load data from Parquet files."""
+
+@st.cache_data(ttl=300)
+def load_parquet(path: Path) -> pd.DataFrame:
     try:
-        if DUCKDB_AVAILABLE:
-            return duckdb.query(f"SELECT * FROM read_parquet('{path}/**/*.parquet')").df()
-        else:
-            return pd.read_parquet(path)
-    except Exception as e:
-        st.warning(f"Could not load data from {path}: {e}")
-        return pd.DataFrame()
+        return pd.read_parquet(path)
+    except Exception:
+        try:
+            import duckdb
 
-
-def get_data_summary() -> dict:
-    """Get summary of available data."""
-    summary = {}
-
-    tables = [
-        ("vehicle_positions", BRONZE_DIR / "vehicle_positions"),
-        ("shipment_events", BRONZE_DIR / "shipment_events"),
-        ("delivery_events", BRONZE_DIR / "delivery_events"),
-        ("trips", SILVER_DIR / "fleet" / "trips"),
-        ("journeys", SILVER_DIR / "shipment" / "journeys"),
-        ("agent_shifts", SILVER_DIR / "delivery" / "agent_shifts"),
-    ]
-
-    for name, path in tables:
-        if path.exists():
+            parquet_glob = f"{path.as_posix()}/**/*.parquet"
+            conn = duckdb.connect()
             try:
-                df = load_parquet_data(str(path))
-                summary[name] = {"rows": len(df), "path": str(path)}
-            except:
-                summary[name] = {"rows": 0, "path": str(path)}
-        else:
-            summary[name] = {"rows": 0, "path": str(path)}
+                return conn.execute("SELECT * FROM read_parquet(?)", [parquet_glob]).fetchdf()
+            finally:
+                conn.close()
+        except Exception as e:
+            st.warning(f"Could not load data from {path}: {e}")
+            return pd.DataFrame()
 
-    return summary
+
+def _alias_columns(df: pd.DataFrame, alias_map: dict[str, list[str]]) -> pd.DataFrame:
+    """Backfill canonical column names from known source aliases."""
+    if df.empty:
+        return df
+
+    normalized = df.copy()
+    for canonical, candidates in alias_map.items():
+        if canonical in normalized.columns:
+            continue
+        for candidate in candidates:
+            if candidate in normalized.columns:
+                normalized[canonical] = normalized[candidate]
+                break
+    return normalized
+
+
+def normalize_trip_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize trip columns across live and sample datasets."""
+    return _alias_columns(
+        df,
+        {
+            "distance_km": ["total_distance_km"],
+            "duration_minutes": ["trip_duration_minutes"],
+        },
+    )
 
 
 # =============================================================================
-# Dashboard Pages
+# Pages
 # =============================================================================
+
 
 def show_overview():
-    """Show overview dashboard."""
-    st.title("🚚 Unified Logistics Data Platform")
-    st.markdown("---")
+    st.title("Unified Logistics Data Platform")
 
-    # Data summary
-    st.subheader("📊 Data Summary")
-    summary = get_data_summary()
-
-    cols = st.columns(3)
-
-    bronze_tables = ["vehicle_positions", "shipment_events", "delivery_events"]
-    silver_tables = ["trips", "journeys", "agent_shifts"]
-
-    with cols[0]:
-        st.markdown("### Bronze Layer")
-        for table in bronze_tables:
-            info = summary.get(table, {"rows": 0})
-            st.metric(table, f"{info['rows']:,} rows")
-
-    with cols[1]:
-        st.markdown("### Silver Layer")
-        for table in silver_tables:
-            info = summary.get(table, {"rows": 0})
-            st.metric(table, f"{info['rows']:,} rows")
-
-    with cols[2]:
-        st.markdown("### System Status")
-        total_rows = sum(s["rows"] for s in summary.values())
-        st.metric("Total Records", f"{total_rows:,}")
-        st.metric("Tables", len([s for s in summary.values() if s["rows"] > 0]))
-        st.metric("Last Updated", datetime.now().strftime("%H:%M:%S"))
-
-    st.markdown("---")
-
-    # Quick stats
-    st.subheader("📈 Quick Stats")
-
-    # Load some data for stats
-    vehicle_positions = load_parquet_data(str(BRONZE_DIR / "vehicle_positions"))
-    shipment_events = load_parquet_data(str(BRONZE_DIR / "shipment_events"))
-    delivery_events = load_parquet_data(str(BRONZE_DIR / "delivery_events"))
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        if len(vehicle_positions) > 0:
-            unique_vehicles = vehicle_positions['vehicle_id'].nunique()
-            st.metric("Active Vehicles", unique_vehicles)
-        else:
-            st.metric("Active Vehicles", "N/A")
-
-    with col2:
-        if len(shipment_events) > 0:
-            unique_shipments = shipment_events['shipment_id'].nunique()
-            st.metric("Shipments Tracked", unique_shipments)
-        else:
-            st.metric("Shipments Tracked", "N/A")
-
-    with col3:
-        if len(delivery_events) > 0:
-            delivered = len(delivery_events[delivery_events['event_type'] == 'DELIVERED'])
-            st.metric("Deliveries Completed", delivered)
-        else:
-            st.metric("Deliveries Completed", "N/A")
-
-    with col4:
-        if len(delivery_events) > 0 and 'event_type' in delivery_events.columns:
-            total = len(delivery_events)
-            delivered = len(delivery_events[delivery_events['event_type'] == 'DELIVERED'])
-            rate = (delivered / total * 100) if total > 0 else 0
-            st.metric("Delivery Success Rate", f"{rate:.1f}%")
-        else:
-            st.metric("Delivery Success Rate", "N/A")
-
-
-def show_fleet_dashboard():
-    """Show fleet telematics dashboard."""
-    st.title("🚛 Fleet Telematics")
-    st.markdown("---")
-
-    # Load data
-    positions = load_parquet_data(str(BRONZE_DIR / "vehicle_positions"))
-    trips = load_parquet_data(str(SILVER_DIR / "fleet" / "trips"))
-
-    if len(positions) == 0:
-        st.warning("No vehicle position data available. Run the simulators first!")
-        return
-
-    # Vehicle selector
-    vehicles = positions['vehicle_id'].unique()
-    selected_vehicle = st.selectbox("Select Vehicle", ["All"] + list(vehicles))
-
-    if selected_vehicle != "All":
-        positions = positions[positions['vehicle_id'] == selected_vehicle]
-
-    # Metrics
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Total Positions", f"{len(positions):,}")
-    with col2:
-        avg_speed = positions['speed_kmh'].mean() if 'speed_kmh' in positions.columns else 0
-        st.metric("Avg Speed", f"{avg_speed:.1f} km/h")
-    with col3:
-        if len(trips) > 0:
-            st.metric("Trips Reconstructed", len(trips))
-        else:
-            st.metric("Trips Reconstructed", "N/A")
-    with col4:
-        unique_drivers = positions['driver_id'].nunique() if 'driver_id' in positions.columns else 0
-        st.metric("Active Drivers", unique_drivers)
-
-    st.markdown("---")
-
-    # Speed distribution
-    st.subheader("Speed Distribution")
-    if PLOTLY_AVAILABLE and 'speed_kmh' in positions.columns:
-        fig = px.histogram(
-            positions.sample(min(10000, len(positions))),
-            x='speed_kmh',
-            nbins=50,
-            title='Vehicle Speed Distribution'
+    if USING_SAMPLE:
+        st.info(
+            "Viewing pre-generated sample data. "
+            "Run `make simulate-demo && make batch` to see live pipeline data."
         )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.bar_chart(positions['speed_kmh'].value_counts().head(20))
 
-    # Map visualization
-    st.subheader("Vehicle Positions")
-    if PLOTLY_AVAILABLE:
-        sample = positions.sample(min(5000, len(positions)))
-        fig = px.scatter_mapbox(
-            sample,
-            lat='latitude',
-            lon='longitude',
-            color='speed_kmh' if 'speed_kmh' in sample.columns else None,
-            zoom=4,
-            center={"lat": 20.5937, "lon": 78.9629},
-            mapbox_style="carto-positron",
-            title="Vehicle Locations"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.map(positions[['latitude', 'longitude']].sample(min(1000, len(positions))))
-
-
-def show_shipment_dashboard():
-    """Show shipment tracking dashboard."""
-    st.title("📦 Shipment Tracking")
+    st.markdown(
+        "Real-time and batch data platform for Fleet Telematics, Shipment Tracking, and Last-Mile Delivery analytics."
+    )
     st.markdown("---")
 
-    # Load data
-    events = load_parquet_data(str(BRONZE_DIR / "shipment_events"))
-    journeys = load_parquet_data(str(SILVER_DIR / "shipment" / "journeys"))
+    positions = load_parquet(BRONZE_DIR_VEHICLES)
+    shipments = load_parquet(BRONZE_DIR_SHIPMENTS)
+    deliveries = load_parquet(BRONZE_DIR_DELIVERY)
+    trips = normalize_trip_schema(load_parquet(SILVER_DIR_TRIPS))
+    journeys = load_parquet(SILVER_DIR_JOURNEYS)
+    shifts = load_parquet(SILVER_DIR_SHIFTS)
 
-    if len(events) == 0:
-        st.warning("No shipment event data available. Run the simulators first!")
-        return
-
-    # Metrics
-    col1, col2, col3, col4 = st.columns(4)
+    # KPI row
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
-        st.metric("Total Events", f"{len(events):,}")
+        st.metric(
+            "Vehicles Tracked", len(positions["vehicle_id"].unique()) if len(positions) else 0
+        )
     with col2:
-        unique_shipments = events['shipment_id'].nunique()
-        st.metric("Unique Shipments", unique_shipments)
+        st.metric("Shipments", len(shipments["shipment_id"].unique()) if len(shipments) else 0)
     with col3:
-        unique_hubs = events['hub_id'].nunique() if 'hub_id' in events.columns else 0
-        st.metric("Hubs Active", unique_hubs)
+        delivered = (
+            len(deliveries[deliveries["event_type"] == "DELIVERED"]) if len(deliveries) else 0
+        )
+        st.metric("Deliveries", delivered)
     with col4:
-        if len(journeys) > 0 and 'sla_status' in journeys.columns:
-            sla_met = len(journeys[journeys['sla_status'] == 'MET'])
-            total = len(journeys[journeys['sla_status'].isin(['MET', 'BREACHED'])])
-            rate = (sla_met / total * 100) if total > 0 else 0
-            st.metric("SLA Compliance", f"{rate:.1f}%")
+        if len(deliveries) and "event_type" in deliveries.columns:
+            total = len(deliveries)
+            rate = delivered / total * 100 if total else 0
+            st.metric("Success Rate", f"{rate:.1f}%")
+        else:
+            st.metric("Success Rate", "N/A")
+    with col5:
+        st.metric("Trips Reconstructed", len(trips) if len(trips) else 0)
+    with col6:
+        if len(journeys) and "sla_status" in journeys.columns:
+            met = len(journeys[journeys["sla_status"] == "MET"])
+            total_sla = len(journeys[journeys["sla_status"].isin(["MET", "BREACHED"])])
+            sla_rate = met / total_sla * 100 if total_sla else 0
+            st.metric("SLA Compliance", f"{sla_rate:.1f}%")
         else:
             st.metric("SLA Compliance", "N/A")
 
     st.markdown("---")
 
-    # Event type distribution
-    st.subheader("Event Type Distribution")
-    if 'event_type' in events.columns:
-        event_counts = events['event_type'].value_counts()
-        if PLOTLY_AVAILABLE:
+    # Data pipeline summary
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.subheader("Data Pipeline Layers")
+        layer_data = pd.DataFrame(
+            {
+                "Layer": [
+                    "Bronze - Vehicle Positions",
+                    "Bronze - Shipment Events",
+                    "Bronze - Delivery Events",
+                    "Silver - Trips",
+                    "Silver - Journeys",
+                    "Silver - Agent Shifts",
+                ],
+                "Records": [
+                    len(positions),
+                    len(shipments),
+                    len(deliveries),
+                    len(trips),
+                    len(journeys),
+                    len(shifts),
+                ],
+                "Status": ["Active"] * 6,
+            }
+        )
+        st.dataframe(layer_data, use_container_width=True, hide_index=True)
+
+    with col_right:
+        st.subheader("Event Distribution")
+        if len(shipments) and "event_type" in shipments.columns:
+            event_counts = shipments["event_type"].value_counts().head(10)
+            fig = px.bar(
+                x=event_counts.values,
+                y=event_counts.index,
+                orientation="h",
+                labels={"x": "Count", "y": "Event Type"},
+                color_discrete_sequence=["#FF6B35"],
+            )
+            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Map
+    if len(positions) and "latitude" in positions.columns:
+        st.subheader("Fleet Positions Across India")
+        sample = positions.sample(min(2000, len(positions)))
+        fig = px.scatter_mapbox(
+            sample,
+            lat="latitude",
+            lon="longitude",
+            color="speed_kmh" if "speed_kmh" in sample.columns else None,
+            color_continuous_scale="RdYlGn_r",
+            zoom=4,
+            center={"lat": 20.5937, "lon": 78.9629},
+            mapbox_style="carto-positron",
+            height=500,
+        )
+        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def show_fleet_dashboard():
+    st.title("Fleet Telematics")
+    st.markdown("GPS tracking, trip reconstruction, and driver performance analytics.")
+    st.markdown("---")
+
+    positions = load_parquet(BRONZE_DIR_VEHICLES)
+    trips = normalize_trip_schema(load_parquet(SILVER_DIR_TRIPS))
+
+    if len(positions) == 0:
+        st.warning("No vehicle position data available.")
+        return
+
+    vehicles = sorted(positions["vehicle_id"].unique())
+    selected = st.selectbox("Select Vehicle", ["All"] + list(vehicles))
+    if selected != "All":
+        positions = positions[positions["vehicle_id"] == selected]
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("GPS Points", f"{len(positions):,}")
+    with col2:
+        st.metric("Avg Speed", f"{positions['speed_kmh'].mean():.1f} km/h")
+    with col3:
+        st.metric("Trips", len(trips) if len(trips) else "N/A")
+    with col4:
+        st.metric(
+            "Drivers", positions["driver_id"].nunique() if "driver_id" in positions.columns else 0
+        )
+
+    st.markdown("---")
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.subheader("Speed Distribution")
+        fig = px.histogram(
+            positions.sample(min(5000, len(positions))),
+            x="speed_kmh",
+            nbins=40,
+            color_discrete_sequence=["#FF6B35"],
+            labels={"speed_kmh": "Speed (km/h)"},
+        )
+        fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_right:
+        st.subheader("Vehicle Type Breakdown")
+        if "vehicle_type" in positions.columns:
+            type_counts = positions.groupby("vehicle_type")["vehicle_id"].nunique().reset_index()
+            type_counts.columns = ["Vehicle Type", "Count"]
+            fig = px.pie(
+                type_counts,
+                values="Count",
+                names="Vehicle Type",
+                color_discrete_sequence=px.colors.qualitative.Set2,
+            )
+            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Trip analysis
+    if len(trips) > 0:
+        st.markdown("---")
+        st.subheader("Trip Analysis")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            fig = px.histogram(
+                trips,
+                x="distance_km",
+                nbins=30,
+                labels={"distance_km": "Distance (km)"},
+                color_discrete_sequence=["#2E86AB"],
+            )
+            fig.update_layout(
+                title="Trip Distance Distribution", margin=dict(l=0, r=0, t=30, b=0), height=300
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            fig = px.scatter(
+                trips,
+                x="distance_km",
+                y="duration_minutes",
+                color="vehicle_type" if "vehicle_type" in trips.columns else None,
+                labels={"distance_km": "Distance (km)", "duration_minutes": "Duration (min)"},
+                color_discrete_sequence=px.colors.qualitative.Set2,
+            )
+            fig.update_layout(
+                title="Distance vs Duration", margin=dict(l=0, r=0, t=30, b=0), height=300
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Map
+    st.subheader("Vehicle Positions")
+    sample = positions.sample(min(3000, len(positions)))
+    fig = px.scatter_mapbox(
+        sample,
+        lat="latitude",
+        lon="longitude",
+        color="speed_kmh",
+        color_continuous_scale="RdYlGn_r",
+        zoom=4,
+        center={"lat": 20.5937, "lon": 78.9629},
+        mapbox_style="carto-positron",
+        height=500,
+    )
+    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def show_shipment_dashboard():
+    st.title("Shipment Tracking")
+    st.markdown("Package scan events, journey reconstruction, and SLA monitoring.")
+    st.markdown("---")
+
+    events = load_parquet(BRONZE_DIR_SHIPMENTS)
+    journeys = load_parquet(SILVER_DIR_JOURNEYS)
+
+    if len(events) == 0:
+        st.warning("No shipment event data available.")
+        return
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Events", f"{len(events):,}")
+    with col2:
+        st.metric("Shipments", events["shipment_id"].nunique())
+    with col3:
+        st.metric("Hubs Active", events["hub_id"].nunique() if "hub_id" in events.columns else 0)
+    with col4:
+        if len(journeys) and "sla_status" in journeys.columns:
+            met = len(journeys[journeys["sla_status"] == "MET"])
+            total = len(journeys[journeys["sla_status"].isin(["MET", "BREACHED"])])
+            st.metric("SLA Compliance", f"{met / total * 100:.1f}%" if total else "N/A")
+        else:
+            st.metric("SLA Compliance", "N/A")
+
+    st.markdown("---")
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.subheader("Event Pipeline")
+        if "event_type" in events.columns:
+            event_counts = events["event_type"].value_counts()
             fig = px.bar(
                 x=event_counts.index,
                 y=event_counts.values,
-                title="Shipment Events by Type"
+                labels={"x": "Event Type", "y": "Count"},
+                color_discrete_sequence=["#FF6B35"],
             )
+            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350, xaxis_tickangle=-45)
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.bar_chart(event_counts)
 
-    # Hub activity
-    st.subheader("Hub Activity")
-    if 'hub_name' in events.columns:
-        hub_activity = events.groupby('hub_name').size().sort_values(ascending=False)
-        if PLOTLY_AVAILABLE:
+    with col_right:
+        st.subheader("Hub Activity")
+        if "hub_name" in events.columns:
+            hub_counts = events.groupby("hub_name").size().sort_values(ascending=True)
             fig = px.bar(
-                x=hub_activity.values,
-                y=hub_activity.index,
-                orientation='h',
-                title="Events by Hub"
+                x=hub_counts.values,
+                y=hub_counts.index,
+                orientation="h",
+                labels={"x": "Events", "y": "Hub"},
+                color_discrete_sequence=["#2E86AB"],
             )
+            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.bar_chart(hub_activity)
 
-    # Journey outcomes
-    if len(journeys) > 0 and 'journey_outcome' in journeys.columns:
-        st.subheader("Journey Outcomes")
-        outcome_counts = journeys['journey_outcome'].value_counts()
-        if PLOTLY_AVAILABLE:
-            fig = px.pie(
-                values=outcome_counts.values,
-                names=outcome_counts.index,
-                title="Shipment Journey Outcomes"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.bar_chart(outcome_counts)
+    if len(journeys) > 0:
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("Journey Outcomes")
+            if "journey_outcome" in journeys.columns:
+                outcomes = journeys["journey_outcome"].value_counts()
+                colors = {"DELIVERED": "#28a745", "FAILED": "#dc3545", "IN_TRANSIT": "#ffc107"}
+                fig = px.pie(
+                    values=outcomes.values,
+                    names=outcomes.index,
+                    color=outcomes.index,
+                    color_discrete_map=colors,
+                )
+                fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.subheader("SLA Status")
+            if "sla_status" in journeys.columns:
+                sla = journeys["sla_status"].value_counts()
+                sla_colors = {
+                    "MET": "#28a745",
+                    "BREACHED": "#dc3545",
+                    "ON_TRACK": "#17a2b8",
+                    "AT_RISK": "#ffc107",
+                }
+                fig = px.pie(
+                    values=sla.values,
+                    names=sla.index,
+                    color=sla.index,
+                    color_discrete_map=sla_colors,
+                )
+                fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300)
+                st.plotly_chart(fig, use_container_width=True)
 
 
 def show_delivery_dashboard():
-    """Show last-mile delivery dashboard."""
-    st.title("🛵 Last-Mile Delivery")
+    st.title("Last-Mile Delivery")
+    st.markdown("Delivery agent performance, zone analysis, and customer satisfaction.")
     st.markdown("---")
 
-    # Load data
-    events = load_parquet_data(str(BRONZE_DIR / "delivery_events"))
-    shifts = load_parquet_data(str(SILVER_DIR / "delivery" / "agent_shifts"))
+    events = load_parquet(BRONZE_DIR_DELIVERY)
+    shifts = load_parquet(SILVER_DIR_SHIFTS)
 
     if len(events) == 0:
-        st.warning("No delivery event data available. Run the simulators first!")
+        st.warning("No delivery event data available.")
         return
 
-    # Metrics
     col1, col2, col3, col4 = st.columns(4)
-
+    delivered = (
+        len(events[events["event_type"] == "DELIVERED"]) if "event_type" in events.columns else 0
+    )
     with col1:
-        st.metric("Total Delivery Events", f"{len(events):,}")
+        st.metric("Delivery Events", f"{len(events):,}")
     with col2:
-        unique_agents = events['agent_id'].nunique() if 'agent_id' in events.columns else 0
-        st.metric("Active Agents", unique_agents)
+        st.metric(
+            "Active Agents", events["agent_id"].nunique() if "agent_id" in events.columns else 0
+        )
     with col3:
-        delivered = len(events[events['event_type'] == 'DELIVERED']) if 'event_type' in events.columns else 0
         st.metric("Successful Deliveries", delivered)
     with col4:
-        if 'customer_rating' in events.columns:
-            avg_rating = events['customer_rating'].mean()
-            st.metric("Avg Customer Rating", f"{avg_rating:.2f} ⭐")
+        if "customer_rating" in events.columns:
+            avg = events["customer_rating"].dropna().mean()
+            st.metric("Avg Rating", f"{avg:.2f} / 5.0")
         else:
-            st.metric("Avg Customer Rating", "N/A")
+            st.metric("Avg Rating", "N/A")
 
     st.markdown("---")
+    col_left, col_right = st.columns(2)
 
-    # Delivery outcomes
-    st.subheader("Delivery Outcomes")
-    if 'event_type' in events.columns:
-        outcome_counts = events['event_type'].value_counts()
-        if PLOTLY_AVAILABLE:
+    with col_left:
+        st.subheader("Delivery Outcomes")
+        if "event_type" in events.columns:
+            outcomes = events["event_type"].value_counts()
             colors = {
-                'DELIVERED': 'green',
-                'DELIVERY_ATTEMPTED': 'orange',
-                'DELIVERY_FAILED': 'red'
+                "DELIVERED": "#28a745",
+                "DELIVERY_ATTEMPTED": "#ffc107",
+                "DELIVERY_FAILED": "#dc3545",
             }
             fig = px.pie(
-                values=outcome_counts.values,
-                names=outcome_counts.index,
-                title="Delivery Outcomes",
-                color=outcome_counts.index,
-                color_discrete_map=colors
+                values=outcomes.values,
+                names=outcomes.index,
+                color=outcomes.index,
+                color_discrete_map=colors,
             )
+            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.bar_chart(outcome_counts)
+
+    with col_right:
+        st.subheader("Rating Distribution")
+        if "customer_rating" in events.columns:
+            ratings = events["customer_rating"].dropna()
+            fig = px.histogram(
+                ratings, nbins=5, labels={"value": "Rating"}, color_discrete_sequence=["#FF6B35"]
+            )
+            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
+            st.plotly_chart(fig, use_container_width=True)
 
     # Zone performance
-    if 'zone_id' in events.columns:
+    if "zone_id" in events.columns:
+        st.markdown("---")
         st.subheader("Zone Performance")
-        zone_stats = events.groupby('zone_id').agg({
-            'event_id': 'count',
-            'customer_rating': 'mean'
-        }).rename(columns={'event_id': 'deliveries', 'customer_rating': 'avg_rating'})
+        zone_stats = (
+            events.groupby("zone_id")
+            .agg(
+                deliveries=("event_id", "count"),
+                avg_rating=("customer_rating", "mean"),
+            )
+            .sort_values("deliveries", ascending=False)
+            .reset_index()
+        )
+        zone_stats["avg_rating"] = zone_stats["avg_rating"].round(2)
+        st.dataframe(zone_stats, use_container_width=True, hide_index=True)
 
-        st.dataframe(zone_stats.sort_values('deliveries', ascending=False))
-
-    # Agent performance (if shifts available)
-    if len(shifts) > 0:
+    # Top agents
+    if len(shifts) > 0 and "successful_deliveries" in shifts.columns:
+        st.markdown("---")
         st.subheader("Top Performing Agents")
-        if 'successful_deliveries' in shifts.columns:
-            top_agents = shifts.nlargest(10, 'successful_deliveries')[
-                ['agent_id', 'successful_deliveries', 'delivery_success_rate', 'zone_id']
+        top = shifts.nlargest(10, "successful_deliveries")[
+            [
+                "agent_id",
+                "zone_id",
+                "successful_deliveries",
+                "delivery_success_rate",
+                "avg_customer_rating",
             ]
-            st.dataframe(top_agents)
+        ].reset_index(drop=True)
+        st.dataframe(top, use_container_width=True, hide_index=True)
 
 
 def show_data_quality():
-    """Show data quality dashboard."""
-    st.title("✅ Data Quality")
+    st.title("Data Quality")
+    st.markdown("Automated quality checks across bronze and silver layers.")
     st.markdown("---")
 
-    quality_reports_dir = DATA_DIR / "quality_reports"
-
-    if not quality_reports_dir.exists():
-        st.warning("No quality reports found. Run `make quality` first!")
+    if not QUALITY_DIR.exists():
+        st.warning("No quality reports found. Run `make quality` first.")
         return
 
-    # List available reports
-    reports = list(quality_reports_dir.glob("*.json"))
-
+    reports = list(QUALITY_DIR.glob("*.json"))
     if not reports:
         st.warning("No quality reports found.")
         return
 
-    # Load latest report
-    import json
-    latest_report = max(reports, key=lambda x: x.stat().st_mtime)
-
-    with open(latest_report) as f:
+    latest = max(reports, key=lambda x: x.stat().st_mtime)
+    with open(latest) as f:
         report = json.load(f)
 
-    # Summary metrics
+    summary = report.get("summary", {})
     col1, col2, col3, col4 = st.columns(4)
-
-    summary = report.get('summary', {})
-
     with col1:
-        st.metric("Total Checks", summary.get('total_checks', 0))
+        st.metric("Total Checks", summary.get("total_checks", 0))
     with col2:
-        st.metric("Passed", summary.get('passed', 0))
+        st.metric("Passed", summary.get("passed", 0))
     with col3:
-        st.metric("Failed", summary.get('failed', 0))
+        st.metric("Failed", summary.get("failed", 0))
     with col4:
-        pass_rate = summary.get('pass_rate', 0)
-        st.metric("Pass Rate", f"{pass_rate}%")
+        st.metric("Pass Rate", f"{summary.get('pass_rate', 0)}%")
 
     st.markdown("---")
 
-    # Overall status
-    if report.get('overall_success'):
-        st.success("✅ All quality checks passed!")
+    if report.get("overall_success"):
+        st.success("All quality checks passed!")
     else:
-        st.error("❌ Some quality checks failed!")
+        st.error("Some quality checks failed - see details below.")
 
-    # Detailed results
-    st.subheader("Check Results")
-    checks = report.get('checks', [])
-
+    checks = report.get("checks", [])
     if checks:
         df = pd.DataFrame(checks)
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-        # Color code by success
-        def highlight_status(row):
-            if row.get('success'):
-                return ['background-color: #d4edda'] * len(row)
-            else:
-                return ['background-color: #f8d7da'] * len(row)
 
-        st.dataframe(df)
+def show_architecture():
+    st.title("Platform Architecture")
+    st.markdown("End-to-end data engineering platform built with the modern data stack.")
+    st.markdown("---")
+
+    st.subheader("System Overview")
+    st.code(
+        """
+    DATA SOURCES                    INGESTION              STORAGE & PROCESSING
+    +--------------+               +----------+           +--------------------+
+    | GPS Devices  |--+            |          |           |                    |
+    | (Vehicles)   |  |            |  Apache  |   Bronze  |   Spark Streaming  |
+    +--------------+  +----------->|  Kafka   |---------->|   (Schema valid,   |
+    | Scanner Apps |  |            |  (6      |           |    partitioning)   |
+    | (Hub Workers)|--+            |  topics) |           |                    |
+    +--------------+  |            |          |           +--------+-----------+
+    | Delivery App |--+            +----------+                    |
+    | (Agents)     |                                               v
+    +--------------+                                      +--------+-----------+
+                                                          |   Delta Lake       |
+                      ANALYTICS         GOLD              |   Bronze Layer     |
+                    +----------+   +-----------+          +--------+-----------+
+                    |          |   |           |                    |
+                    |Streamlit |<--|  DuckDB   |<--- dbt ---+      v
+                    |Dashboard |   |  (Star    |            | +----+-----------+
+                    |          |   |   Schema) |            | | Spark Batch    |
+                    +----------+   +-----------+            | | (Trip/Journey  |
+                                                            | |  Reconstruct) |
+                    +----------+   +-----------+            | +----+-----------+
+                    | Jupyter  |<--|  Airflow  |            |      |
+                    | Notebook |   | (2AM DAG) |------------+      v
+                    +----------+   +-----------+              +----+-----------+
+                                                              | Delta Lake     |
+                                                              | Silver Layer   |
+                                                              +----------------+
+    """,
+        language=None,
+    )
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Technology Stack")
+        tech = pd.DataFrame(
+            {
+                "Layer": [
+                    "Messaging",
+                    "Stream Processing",
+                    "Batch Processing",
+                    "Storage",
+                    "Transformations",
+                    "Orchestration",
+                    "Data Quality",
+                    "Warehouse",
+                    "Dashboard",
+                    "Infrastructure",
+                ],
+                "Technology": [
+                    "Apache Kafka",
+                    "Spark Structured Streaming",
+                    "Apache Spark 3.5",
+                    "Delta Lake (ACID)",
+                    "dbt 1.7+",
+                    "Apache Airflow",
+                    "Custom Framework + dbt Tests",
+                    "DuckDB",
+                    "Streamlit + Plotly",
+                    "Docker Compose",
+                ],
+            }
+        )
+        st.dataframe(tech, use_container_width=True, hide_index=True)
+
+    with col2:
+        st.subheader("Data Model (Star Schema)")
+        model = pd.DataFrame(
+            {
+                "Table": [
+                    "fct_trips",
+                    "fct_driver_performance",
+                    "fct_shipments",
+                    "fct_hub_daily",
+                    "fct_agent_daily",
+                    "fct_zone_daily",
+                    "dim_time",
+                    "dim_hubs",
+                ],
+                "Module": [
+                    "Fleet",
+                    "Fleet",
+                    "Shipment",
+                    "Shipment",
+                    "Delivery",
+                    "Delivery",
+                    "Common",
+                    "Common",
+                ],
+                "Grain": [
+                    "Per trip",
+                    "Per driver/day",
+                    "Per shipment",
+                    "Per hub/day",
+                    "Per agent/day",
+                    "Per zone/day",
+                    "Date",
+                    "Hub",
+                ],
+            }
+        )
+        st.dataframe(model, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.subheader("Medallion Architecture")
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("### Bronze (Raw)")
+        st.markdown(
+            "- Raw Kafka events\n"
+            "- Schema validation\n"
+            "- Ingestion metadata\n"
+            "- Partitioned by date\n"
+            "- Delta Lake format"
+        )
+
+    with col2:
+        st.markdown("### Silver (Processed)")
+        st.markdown(
+            "- Trip reconstruction\n"
+            "- Journey reconstruction\n"
+            "- Agent shift aggregation\n"
+            "- Business logic applied\n"
+            "- Cleaned & validated"
+        )
+
+    with col3:
+        st.markdown("### Gold (Analytics)")
+        st.markdown(
+            "- dbt dimensional model\n"
+            "- 6 fact tables\n"
+            "- 2 dimension tables\n"
+            "- Star schema in DuckDB\n"
+            "- Optimized for queries"
+        )
+
+    st.markdown("---")
+    st.subheader("Key Features")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(
+            "**Fleet Telematics**\n"
+            "- GPS tracking (10s intervals)\n"
+            "- Trip reconstruction\n"
+            "- Driving event detection\n"
+            "- Fuel consumption modeling"
+        )
+    with col2:
+        st.markdown(
+            "**Shipment Tracking**\n"
+            "- Hub scan event pipeline\n"
+            "- Journey reconstruction\n"
+            "- SLA monitoring\n"
+            "- Bottleneck detection"
+        )
+    with col3:
+        st.markdown(
+            "**Last-Mile Delivery**\n"
+            "- Agent GPS tracking\n"
+            "- Shift aggregation\n"
+            "- Zone performance\n"
+            "- Customer satisfaction"
+        )
 
 
 # =============================================================================
-# Main App
+# Main
 # =============================================================================
+
 
 def main():
-    """Main application entry point."""
-
-    # Sidebar navigation
-    st.sidebar.title("🚚 Navigation")
+    st.sidebar.title("Navigation")
 
     pages = {
-        "📊 Overview": show_overview,
-        "🚛 Fleet Telematics": show_fleet_dashboard,
-        "📦 Shipment Tracking": show_shipment_dashboard,
-        "🛵 Last-Mile Delivery": show_delivery_dashboard,
-        "✅ Data Quality": show_data_quality,
+        "Overview": show_overview,
+        "Fleet Telematics": show_fleet_dashboard,
+        "Shipment Tracking": show_shipment_dashboard,
+        "Last-Mile Delivery": show_delivery_dashboard,
+        "Data Quality": show_data_quality,
+        "Architecture": show_architecture,
     }
 
     selection = st.sidebar.radio("Go to", list(pages.keys()))
-
-    # Run selected page
     pages[selection]()
 
-    # Sidebar info
     st.sidebar.markdown("---")
     st.sidebar.markdown("### About")
     st.sidebar.info(
-        "Unified Logistics Data Platform\n\n"
-        "• Fleet Telematics\n"
-        "• Shipment Tracking\n"
-        "• Last-Mile Delivery"
+        "**Unified Logistics Data Platform**\n\n"
+        "End-to-end data engineering project:\n"
+        "Kafka | Spark | Delta Lake | dbt | Airflow | DuckDB"
     )
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown(
-        "Made with ❤️ using Streamlit"
-    )
+    data_mode = "Sample Data" if USING_SAMPLE else "Live Pipeline"
+    st.sidebar.caption(f"Data mode: {data_mode}")
 
 
 if __name__ == "__main__":

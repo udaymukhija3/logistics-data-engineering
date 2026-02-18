@@ -10,16 +10,12 @@ This job:
 
 import argparse
 import logging
-import math
-from datetime import datetime, timedelta
-from typing import Optional
 
-from pyspark.sql import SparkSession, DataFrame, Window
+from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import (
-    StructType, StructField, StringType, DoubleType,
-    IntegerType, TimestampType, LongType
-)
+from pyspark.storagelevel import StorageLevel
+
+from src.utils.spark_geo import haversine_distance_km_expr
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,10 +56,11 @@ class TripReconstructor:
     def _create_spark_session(self) -> SparkSession:
         """Create Spark session with Delta Lake support."""
         return (
-            SparkSession.builder
-            .appName("TripReconstruction")
+            SparkSession.builder.appName("TripReconstruction")
             .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+            .config(
+                "spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+            )
             .config("spark.sql.adaptive.enabled", "true")
             .getOrCreate()
         )
@@ -78,35 +75,11 @@ class TripReconstructor:
             df = df.filter(F.col("event_date") == date)
 
         # Filter valid positions only
-        df = df.filter(
-            F.col("is_valid_location") == True
-        ).filter(
+        df = df.filter(F.col("is_valid_location") == True).filter(
             F.col("latitude").isNotNull() & F.col("longitude").isNotNull()
         )
 
         return df
-
-    def _calculate_distance_udf(self):
-        """Create UDF for haversine distance calculation."""
-        @F.udf(DoubleType())
-        def haversine(lat1, lng1, lat2, lng2):
-            if any(v is None for v in [lat1, lng1, lat2, lng2]):
-                return None
-
-            R = 6371  # Earth's radius in km
-
-            lat1_rad = math.radians(lat1)
-            lat2_rad = math.radians(lat2)
-            delta_lat = math.radians(lat2 - lat1)
-            delta_lng = math.radians(lng2 - lng1)
-
-            a = (math.sin(delta_lat/2)**2 +
-                 math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lng/2)**2)
-            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
-            return R * c
-
-        return haversine
 
     def _identify_trip_boundaries(self, df: DataFrame) -> DataFrame:
         """
@@ -121,34 +94,27 @@ class TripReconstructor:
 
         # Calculate time since previous position
         df = df.withColumn(
-            "prev_timestamp",
-            F.lag("event_timestamp").over(vehicle_window)
+            "prev_timestamp", F.lag("event_timestamp").over(vehicle_window)
         ).withColumn(
             "time_gap_minutes",
-            (F.unix_timestamp("event_timestamp") - F.unix_timestamp("prev_timestamp")) / 60
+            (F.unix_timestamp("event_timestamp") - F.unix_timestamp("prev_timestamp")) / 60,
         )
 
         # Get previous state
-        df = df.withColumn(
-            "prev_state",
-            F.lag("state").over(vehicle_window)
-        )
+        df = df.withColumn("prev_state", F.lag("state").over(vehicle_window))
 
         # Mark trip boundaries
         df = df.withColumn(
             "is_trip_start",
-            (F.col("time_gap_minutes") > self.trip_gap_minutes) |
-            F.col("prev_timestamp").isNull() |
-            (
-                (F.col("state") == "MOVING") &
-                (F.col("prev_state").isin(["IDLE", "STOPPED"]))
-            )
+            (F.col("time_gap_minutes") > self.trip_gap_minutes)
+            | F.col("prev_timestamp").isNull()
+            | ((F.col("state") == "MOVING") & (F.col("prev_state").isin(["IDLE", "STOPPED"]))),
         )
 
         # Assign trip IDs using cumulative sum of trip starts
         df = df.withColumn(
             "trip_sequence",
-            F.sum(F.when(F.col("is_trip_start"), 1).otherwise(0)).over(vehicle_window)
+            F.sum(F.when(F.col("is_trip_start"), 1).otherwise(0)).over(vehicle_window),
         ).withColumn(
             "reconstructed_trip_id",
             F.concat(
@@ -156,8 +122,8 @@ class TripReconstructor:
                 F.lit("_TRIP_"),
                 F.date_format("event_timestamp", "yyyyMMdd"),
                 F.lit("_"),
-                F.lpad(F.col("trip_sequence").cast("string"), 3, "0")
-            )
+                F.lpad(F.col("trip_sequence").cast("string"), 3, "0"),
+            ),
         )
 
         return df
@@ -165,52 +131,35 @@ class TripReconstructor:
     def _calculate_segment_metrics(self, df: DataFrame) -> DataFrame:
         """Calculate distance and duration for each GPS segment."""
         vehicle_window = Window.partitionBy("vehicle_id").orderBy("event_timestamp")
-        haversine = self._calculate_distance_udf()
 
         # Get previous position
-        df = df.withColumn(
-            "prev_lat",
-            F.lag("latitude").over(vehicle_window)
-        ).withColumn(
-            "prev_lng",
-            F.lag("longitude").over(vehicle_window)
+        df = df.withColumn("prev_lat", F.lag("latitude").over(vehicle_window)).withColumn(
+            "prev_lng", F.lag("longitude").over(vehicle_window)
+        )
+
+        segment_distance = haversine_distance_km_expr(
+            F.col("prev_lat"), F.col("prev_lng"), F.col("latitude"), F.col("longitude")
         )
 
         # Calculate segment distance
         df = df.withColumn(
             "segment_distance_km",
-            F.when(
-                F.col("is_trip_start"),
-                F.lit(0.0)
-            ).otherwise(
-                haversine(
-                    F.col("prev_lat"), F.col("prev_lng"),
-                    F.col("latitude"), F.col("longitude")
-                )
-            )
+            F.when(F.col("is_trip_start"), F.lit(0.0)).otherwise(segment_distance),
         )
 
         # Calculate segment duration in seconds
         df = df.withColumn(
             "segment_duration_seconds",
-            F.when(
-                F.col("is_trip_start"),
-                F.lit(0)
-            ).otherwise(
+            F.when(F.col("is_trip_start"), F.lit(0)).otherwise(
                 F.unix_timestamp("event_timestamp") - F.unix_timestamp("prev_timestamp")
-            )
+            ),
         )
 
         return df
 
     def _aggregate_trips(self, df: DataFrame) -> DataFrame:
         """Aggregate GPS points into trip summaries."""
-        trips = df.groupBy(
-            "reconstructed_trip_id",
-            "vehicle_id",
-            "driver_id",
-            "vehicle_type"
-        ).agg(
+        trips = df.groupBy("reconstructed_trip_id", "vehicle_id", "driver_id", "vehicle_type").agg(
             F.min("event_timestamp").alias("trip_start_time"),
             F.max("event_timestamp").alias("trip_end_time"),
             F.first("latitude").alias("start_latitude"),
@@ -230,21 +179,23 @@ class TripReconstructor:
         )
 
         # Calculate derived metrics
-        trips = trips.withColumn(
-            "trip_duration_minutes",
-            (F.unix_timestamp("trip_end_time") - F.unix_timestamp("trip_start_time")) / 60
-        ).withColumn(
-            "moving_time_minutes",
-            F.col("trip_duration_minutes") - (F.col("total_stop_time_seconds") / 60)
-        ).withColumn(
-            "fuel_consumed_pct",
-            F.col("max_fuel_pct") - F.col("min_fuel_pct")
-        ).withColumn(
-            "fuel_efficiency_km_per_pct",
-            F.when(
-                F.col("fuel_consumed_pct") > 0,
-                F.col("total_distance_km") / F.col("fuel_consumed_pct")
-            ).otherwise(None)
+        trips = (
+            trips.withColumn(
+                "trip_duration_minutes",
+                (F.unix_timestamp("trip_end_time") - F.unix_timestamp("trip_start_time")) / 60,
+            )
+            .withColumn(
+                "moving_time_minutes",
+                F.col("trip_duration_minutes") - (F.col("total_stop_time_seconds") / 60),
+            )
+            .withColumn("fuel_consumed_pct", F.col("max_fuel_pct") - F.col("min_fuel_pct"))
+            .withColumn(
+                "fuel_efficiency_km_per_pct",
+                F.when(
+                    F.col("fuel_consumed_pct") > 0,
+                    F.col("total_distance_km") / F.col("fuel_consumed_pct"),
+                ).otherwise(None),
+            )
         )
 
         return trips
@@ -252,36 +203,39 @@ class TripReconstructor:
     def _filter_valid_trips(self, trips: DataFrame) -> DataFrame:
         """Filter out invalid or too-short trips."""
         return trips.filter(
-            (F.col("trip_duration_minutes") >= self.min_trip_duration_minutes) &
-            (F.col("position_count") >= self.min_trip_positions) &
-            (F.col("total_distance_km") > 0.1)  # At least 100m
+            (F.col("trip_duration_minutes") >= self.min_trip_duration_minutes)
+            & (F.col("position_count") >= self.min_trip_positions)
+            & (F.col("total_distance_km") > 0.1)  # At least 100m
         )
 
     def _add_trip_classification(self, trips: DataFrame) -> DataFrame:
         """Classify trips by type and characteristics."""
-        haversine = self._calculate_distance_udf()
+        straight_line_distance = haversine_distance_km_expr(
+            F.col("start_latitude"),
+            F.col("start_longitude"),
+            F.col("end_latitude"),
+            F.col("end_longitude"),
+        )
 
-        trips = trips.withColumn(
-            "straight_line_distance_km",
-            haversine(
-                F.col("start_latitude"), F.col("start_longitude"),
-                F.col("end_latitude"), F.col("end_longitude")
+        trips = (
+            trips.withColumn("straight_line_distance_km", straight_line_distance)
+            .withColumn(
+                "route_efficiency",
+                F.when(
+                    F.col("total_distance_km") > 0,
+                    F.col("straight_line_distance_km") / F.col("total_distance_km"),
+                ).otherwise(None),
             )
-        ).withColumn(
-            "route_efficiency",
-            F.when(
-                F.col("total_distance_km") > 0,
-                F.col("straight_line_distance_km") / F.col("total_distance_km")
-            ).otherwise(None)
-        ).withColumn(
-            "trip_type",
-            F.when(F.col("straight_line_distance_km") < 1, "LOCAL")
-            .when(F.col("straight_line_distance_km") < 50, "INTERCITY_SHORT")
-            .when(F.col("straight_line_distance_km") < 200, "INTERCITY_MEDIUM")
-            .otherwise("INTERCITY_LONG")
-        ).withColumn(
-            "is_round_trip",
-            F.col("straight_line_distance_km") < 2  # Ends within 2km of start
+            .withColumn(
+                "trip_type",
+                F.when(F.col("straight_line_distance_km") < 1, "LOCAL")
+                .when(F.col("straight_line_distance_km") < 50, "INTERCITY_SHORT")
+                .when(F.col("straight_line_distance_km") < 200, "INTERCITY_MEDIUM")
+                .otherwise("INTERCITY_LONG"),
+            )
+            .withColumn(
+                "is_round_trip", F.col("straight_line_distance_km") < 2  # Ends within 2km of start
+            )
         )
 
         return trips
@@ -301,7 +255,9 @@ class TripReconstructor:
 
         # Read Bronze data
         positions = self._read_bronze_positions(date)
-        logger.info(f"Read {positions.count()} GPS positions")
+        if positions.limit(1).count() == 0:
+            logger.warning("No valid GPS positions found, skipping reconstruction")
+            return positions.limit(0)
 
         # Identify trip boundaries
         with_boundaries = self._identify_trip_boundaries(positions)
@@ -320,12 +276,9 @@ class TripReconstructor:
 
         # Add metadata
         final_trips = classified_trips.withColumn(
-            "reconstructed_at",
-            F.current_timestamp()
-        ).withColumn(
-            "trip_date",
-            F.to_date("trip_start_time")
-        )
+            "reconstructed_at", F.current_timestamp()
+        ).withColumn("trip_date", F.to_date("trip_start_time"))
+        final_trips.persist(StorageLevel.MEMORY_AND_DISK)
 
         trip_count = final_trips.count()
         logger.info(f"Reconstructed {trip_count} valid trips")
@@ -333,13 +286,14 @@ class TripReconstructor:
         if write_output and trip_count > 0:
             output_path = f"{self.silver_path}/fleet/trips"
             (
-                final_trips.write
-                .format("delta")
+                final_trips.write.format("delta")
                 .mode("append")
                 .partitionBy("trip_date")
                 .save(output_path)
             )
             logger.info(f"Wrote trips to {output_path}")
+
+        final_trips.unpersist()
 
         return final_trips
 
@@ -350,7 +304,9 @@ def main():
     parser.add_argument("--bronze-path", default="data/bronze", help="Bronze layer path")
     parser.add_argument("--silver-path", default="data/silver", help="Silver layer path")
     parser.add_argument("--trip-gap", type=int, default=30, help="Trip gap threshold in minutes")
-    parser.add_argument("--min-duration", type=int, default=5, help="Minimum trip duration in minutes")
+    parser.add_argument(
+        "--min-duration", type=int, default=5, help="Minimum trip duration in minutes"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Don't write output")
 
     args = parser.parse_args()
@@ -362,10 +318,7 @@ def main():
         min_trip_duration_minutes=args.min_duration,
     )
 
-    trips = reconstructor.reconstruct(
-        date=args.date,
-        write_output=not args.dry_run
-    )
+    trips = reconstructor.reconstruct(date=args.date, write_output=not args.dry_run)
 
     # Show sample
     trips.show(10, truncate=False)

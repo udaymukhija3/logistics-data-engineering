@@ -1,296 +1,193 @@
 # Unified Logistics Data Platform
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Apache Spark](https://img.shields.io/badge/Apache%20Spark-3.5-orange.svg)](https://spark.apache.org/)
-[![dbt](https://img.shields.io/badge/dbt-1.7+-green.svg)](https://www.getdbt.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+This repository is an end-to-end logistics data engineering system that simulates operational events, ingests them in real time, transforms them into analytics-ready models, and serves insights through an interactive dashboard.
 
-> End-to-end data platform for logistics operations: **Fleet Telematics** + **Shipment Tracking** + **Last-Mile Delivery**
+It is designed to demonstrate production-style engineering across streaming, batch processing, orchestration, data quality, testing, and deployment.
 
-## 🎯 What This Project Demonstrates
+## Core Features
 
-| Category | Technologies & Skills |
-|----------|----------------------|
-| **Data Ingestion** | Kafka producers, event simulation, real-time streaming |
-| **Stream Processing** | Spark Structured Streaming, stateful processing |
-| **Batch Processing** | Spark batch jobs, trip/journey reconstruction |
-| **Data Modeling** | Dimensional modeling, star schema, medallion architecture |
-| **Orchestration** | Apache Airflow DAGs, task dependencies |
-| **Data Quality** | Custom validation framework, dbt tests |
-| **Transformations** | dbt models (staging → intermediate → marts) |
-| **Storage** | Delta Lake, partitioning, ACID transactions |
+- Real-time ingestion from Kafka topics for fleet, shipment, and delivery domains
+- Spark Structured Streaming pipeline into Bronze storage with schema validation and partitioned writes
+- Batch reconstruction jobs for trips, shipment journeys, and delivery agent shifts
+- dbt-based dimensional modeling from staging to marts
+- Data quality checks with robust validation and report generation
+- Multi-simulator orchestration with guarded thread failures and graceful shutdown behavior
+- Dashboard that supports both live data and sample data fallback for easy review
+- Docker-based local infrastructure and lightweight dashboard deployment path
 
----
+## Tech Stack
 
-## 🏗️ Architecture
+- Language: Python 3.10+
+- Messaging: Apache Kafka
+- Stream Processing: Apache Spark Structured Streaming
+- Batch Processing: Apache Spark
+- Storage Format: Delta Lake (runtime) and Parquet (sample datasets)
+- Transformations: dbt (`dbt-core`, `dbt-duckdb`)
+- Orchestration: Apache Airflow
+- Warehouse and local analytics: DuckDB
+- Visualization: Streamlit + Plotly
+- Testing: pytest
+- Infrastructure: Docker Compose
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           DATA SOURCES                                       │
-│   GPS Devices      Scanner Apps       Delivery App                          │
-│   (Vehicles)       (Hub Workers)      (Agents)                              │
-└───────────┬──────────────┬────────────────┬─────────────────────────────────┘
-            │              │                │
-            ▼              ▼                ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        APACHE KAFKA                                          │
-│   vehicle_positions │ shipment_events │ agent_positions │ delivery_events   │
-└───────────┬──────────────────────────────────────────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    SPARK STRUCTURED STREAMING                                │
-│   • Schema validation              • Coordinate validation                  │
-│   • Timestamp extraction           • Partitioning by date                   │
-└───────────┬──────────────────────────────────────────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       DELTA LAKE - BRONZE LAYER                              │
-│   Raw events with ingestion metadata and data quality flags                 │
-└───────────┬──────────────────────────────────────────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         SPARK BATCH JOBS                                     │
-│   • Trip reconstruction            • Journey reconstruction                 │
-│   • Agent shift aggregation        • Metrics calculation                    │
-└───────────┬──────────────────────────────────────────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       DELTA LAKE - SILVER LAYER                              │
-│   Cleaned, validated, business-ready datasets                               │
-└───────────┬──────────────────────────────────────────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              dbt                                             │
-│   Staging → Intermediate → Marts (Facts + Dimensions)                       │
-└───────────┬──────────────────────────────────────────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       DATA WAREHOUSE (DuckDB)                                │
-│   Dimensional model optimized for analytics queries                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+## Architecture Overview
 
----
+The system is organized as three business modules that share a common platform:
 
-## 📊 Three Integrated Modules
+- Fleet Telematics: vehicle GPS and telemetry, trip reconstruction, fleet analytics
+- Shipment Tracking: hub events, journey reconstruction, SLA and bottleneck analysis
+- Last-Mile Delivery: agent GPS, delivery outcomes, shift and zone performance
 
-### 1. Fleet Telematics
-- **Data**: GPS positions (10 sec intervals), vehicle telemetry
-- **Processing**: Trip reconstruction, driving event detection, route analysis
-- **Output**: `fct_trips`, `fct_driver_performance`
+Pipeline flow:
 
-### 2. Shipment Tracking
-- **Data**: Package scan events at each hub in the network
-- **Processing**: Journey reconstruction, SLA monitoring, bottleneck detection
-- **Output**: `fct_shipments`, `fct_hub_daily`
+1. Simulators publish events to Kafka topics.
+2. Streaming jobs ingest Kafka topics to Bronze tables.
+3. Batch jobs transform Bronze events into Silver datasets.
+4. dbt models build analytics marts from curated data.
+5. Quality checks validate critical data contracts and thresholds.
+6. Streamlit dashboard surfaces operational KPIs and trends.
 
-### 3. Last-Mile Delivery
-- **Data**: Delivery agent GPS, delivery attempts/completions
-- **Processing**: Shift aggregation, performance metrics, zone analysis
-- **Output**: `fct_agent_daily`, `fct_zone_daily`
+## Setup and Installation
 
----
+### 1. Prerequisites
 
-## 🚀 Quick Start
+- Python 3.10 or later
+- Docker and Docker Compose
+- Java 11+ (required for Spark)
 
-### Prerequisites
-- Python 3.10+
-- Docker & Docker Compose
-- Java 11+ (for Spark)
-
-### Setup
+### 2. Clone the repository
 
 ```bash
-# Clone
-git clone https://github.com/YOUR_USERNAME/unified-logistics-platform.git
-cd unified-logistics-platform
+git clone <your-repo-url>
+cd logistics
+```
 
-# Setup virtual environment
+### 3. Create environment and install dependencies
+
+```bash
 make setup
 source venv/bin/activate
+```
 
-# Start infrastructure (Kafka, Spark, Airflow, MinIO)
+### 4. Configure environment variables
+
+```bash
+cp .env.example .env
+```
+
+Update `.env` before running infrastructure. At minimum, set secure values for:
+
+- `POSTGRES_PASSWORD`
+- `MINIO_ROOT_USER`
+- `MINIO_ROOT_PASSWORD`
+- `AIRFLOW__CORE__FERNET_KEY`
+- `AIRFLOW_ADMIN_PASSWORD`
+
+### 5. Start platform infrastructure
+
+```bash
 make infra-up
+```
 
-# Run 2-minute demo simulation
+## Usage Examples
+
+### End-to-end demo run (local)
+
+```bash
+# Generate events for a short demo window
 make simulate-demo
 
-# Run batch processing
-make batch
-
-# Run dbt models
-make dbt-run
+# Run batch jobs on produced data
+make batch-local
 
 # Run data quality checks
 make quality
 
-# Explore data in Jupyter
-make notebook
+# Launch dashboard
+make dashboard
 ```
 
-### Service URLs
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| Airflow | http://localhost:8080 | admin / admin |
-| Kafka UI | http://localhost:8090 | - |
-| Spark UI | http://localhost:8081 | - |
-| MinIO | http://localhost:9001 | minioadmin / minioadmin |
-
----
-
-## 📁 Project Structure
-
-```
-unified-logistics-platform/
-├── src/
-│   ├── simulators/           # Data generators (Kafka producers)
-│   │   ├── vehicle_simulator.py
-│   │   ├── shipment_simulator.py
-│   │   └── delivery_simulator.py
-│   ├── streaming/            # Spark Streaming jobs
-│   │   └── bronze_ingestion.py
-│   ├── batch/                # Spark batch jobs
-│   │   ├── trip_reconstruction.py
-│   │   ├── journey_reconstruction.py
-│   │   └── agent_shift_aggregation.py
-│   └── quality/              # Data quality checks
-│       └── quality_checks.py
-├── dbt_logistics/            # dbt project
-│   ├── models/
-│   │   ├── staging/          # 1:1 with sources
-│   │   ├── intermediate/     # Business logic
-│   │   └── marts/            # Facts & dimensions
-│   └── macros/
-├── dags/                     # Airflow DAGs
-├── infrastructure/           # Docker Compose
-├── notebooks/                # Jupyter notebooks
-├── tests/                    # Unit & integration tests
-└── docs/                     # Documentation
-```
-
----
-
-## 📈 Data Model
-
-### Fact Tables
-
-| Module | Fact Table | Grain | Key Metrics |
-|--------|------------|-------|-------------|
-| Fleet | `fct_trips` | Per trip | distance, duration, speed, fuel |
-| Fleet | `fct_driver_performance` | Per driver per day | safety_score, utilization |
-| Shipment | `fct_shipments` | Per shipment | sla_status, journey_duration |
-| Shipment | `fct_hub_daily` | Per hub per day | throughput, efficiency |
-| Delivery | `fct_agent_daily` | Per agent per day | deliveries, success_rate |
-| Delivery | `fct_zone_daily` | Per zone per day | volume, performance |
-
-### Dimension Tables
-- `dim_time` - Date dimension with fiscal year support
-- `dim_hubs` - Hub master data (10 major Indian cities)
-
----
-
-## 🛠️ Technology Stack
-
-| Layer | Technology |
-|-------|------------|
-| **Messaging** | Apache Kafka |
-| **Stream Processing** | Spark Structured Streaming |
-| **Batch Processing** | Apache Spark 3.5 |
-| **Storage** | Delta Lake |
-| **Transformations** | dbt 1.7 |
-| **Orchestration** | Apache Airflow |
-| **Data Quality** | Custom framework + dbt tests |
-| **Warehouse** | DuckDB |
-| **Infrastructure** | Docker Compose |
-
----
-
-## 🔧 Key Commands
+### Domain-specific simulation
 
 ```bash
-# Infrastructure
-make infra-up          # Start all services
-make infra-down        # Stop all services
-make infra-status      # Check service status
-
-# Data Generation
-make simulate          # Run all simulators
-make simulate-demo     # Run 2-min demo
-
-# Processing
-make stream            # Start streaming jobs
-make batch             # Run batch processing
-
-# dbt
-make dbt-run           # Run all models
-make dbt-test          # Run tests
-make dbt-docs          # Generate & serve docs
-
-# Quality
-make quality           # Run quality checks
-make test              # Run pytest
+make simulate-fleet
+make simulate-shipments
+make simulate-delivery
 ```
 
----
-
-## 📚 Documentation
-
-- [Architecture Deep Dive](docs/logistics_platform_blueprint_part1.md)
-- [Data Model Specification](docs/logistics_platform_blueprint_part2.md)
-- [Implementation Guide](docs/logistics_platform_blueprint_part3.md)
-
----
-
-## 🇮🇳 India Market Relevance
-
-This platform architecture is directly applicable to:
-
-| Company | Relevant Modules |
-|---------|------------------|
-| **Delhivery** | Fleet tracking, shipment tracking, last-mile |
-| **Porter** | Fleet telematics, trip analytics |
-| **Ecom Express** | Hub throughput, SLA monitoring |
-| **Shadowfax** | Delivery agent optimization |
-| **Swiggy/Zomato** | Last-mile delivery analytics |
-
----
-
-## 🧪 Testing
+### Streaming ingestion
 
 ```bash
-# Run all tests
+make stream
+```
+
+### dbt transformations
+
+```bash
+make dbt-deps
+make dbt-run
+make dbt-test
+```
+
+### Tests
+
+```bash
 make test
-
-# Run with coverage
-make test-cov
-
-# Run specific test categories
 make test-unit
 make test-integration
 ```
 
----
+## Service Endpoints (Local)
 
-## 📄 License
+- Dashboard: `http://localhost:8501`
+- Airflow: `http://localhost:8080`
+- Kafka UI: `http://localhost:8090`
+- Spark Master UI: `http://localhost:8081`
+- MinIO Console: `http://localhost:9001`
 
-MIT License - see [LICENSE](LICENSE) for details.
+Credentials are controlled through `.env`.
 
----
+## Project Structure
 
-## 👤 Author
+```text
+src/
+  batch/              Spark batch transformations
+  dashboard/          Streamlit application
+  domain/             Shared constants
+  quality/            Data quality framework
+  simulators/         Event generators + orchestrator
+  streaming/          Structured streaming ingestion
+  utils/              Shared utility modules
 
-**Your Name**
-- GitHub: [@your_username](https://github.com/your_username)
-- LinkedIn: [your_username](https://linkedin.com/in/your_username)
+dbt_logistics/        dbt project (staging/intermediate/marts)
+dags/                 Airflow DAG definitions
+infrastructure/       Docker Compose and infra scripts
+data/sample/          Sample datasets used by dashboard and integration checks
+tests/                Unit and integration tests
+```
 
----
+## Architectural Decisions
 
-<p align="center">
-  Built with ❤️ for the data engineering community
-</p>
+- Medallion-style separation (`Bronze -> Silver -> Marts`) keeps ingestion concerns isolated from business logic and analytics modeling.
+- Spark is used for both streaming and batch to keep execution semantics consistent across real-time and scheduled processing.
+- Domain constants and validation helpers are centralized to reduce drift between simulators, quality checks, and downstream transformations.
+- Simulator orchestration uses failure guards to stop all modules when one crashes, preventing silent partial data generation.
+- Data quality checks support both Spark and DuckDB backends so validation can run in lightweight local/deployment environments.
+- The dashboard supports sample-data fallback to remain usable in portfolio and cloud demo contexts without full infrastructure.
+
+## Deployment Notes
+
+- Dashboard-only deployment is supported via:
+  - `requirements-streamlit.txt`
+  - multi-stage `Dockerfile` (`dashboard` stage)
+  - `render.yaml`
+- Full platform execution is intended for local Docker Compose or equivalent infrastructure environments.
+
+## Additional Documentation
+
+- `docs/logistics_platform_blueprint_part1.md`
+- `docs/logistics_platform_blueprint_part2.md`
+- `docs/logistics_platform_blueprint_part3.md`
+
+## License
+
+MIT License.

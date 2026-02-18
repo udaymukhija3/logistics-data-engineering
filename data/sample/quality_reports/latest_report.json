@@ -1,0 +1,68 @@
+{
+  "timestamp": "2026-02-11T06:34:13.729233",
+  "overall_success": false,
+  "summary": {
+    "total_checks": 8,
+    "passed": 7,
+    "failed": 1,
+    "pass_rate": 87.5
+  },
+  "checks": [
+    {
+      "check": "vehicle_positions_not_null",
+      "table": "vehicle_positions",
+      "layer": "bronze",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "check": "vehicle_speed_range",
+      "table": "vehicle_positions",
+      "layer": "bronze",
+      "success": true,
+      "details": "All speeds within 0-200 km/h"
+    },
+    {
+      "check": "coordinates_in_india",
+      "table": "vehicle_positions",
+      "layer": "bronze",
+      "success": true,
+      "details": "All coordinates within India bounds"
+    },
+    {
+      "check": "shipment_event_sequence",
+      "table": "shipment_events",
+      "layer": "bronze",
+      "success": true,
+      "details": "Event sequences valid"
+    },
+    {
+      "check": "delivery_rating_range",
+      "table": "delivery_events",
+      "layer": "bronze",
+      "success": true,
+      "details": "Ratings between 1-5"
+    },
+    {
+      "check": "trip_distance_positive",
+      "table": "trips",
+      "layer": "silver",
+      "success": true,
+      "details": "All distances > 0"
+    },
+    {
+      "check": "journey_sla_populated",
+      "table": "journeys",
+      "layer": "silver",
+      "success": true,
+      "details": "SLA status set for all journeys"
+    },
+    {
+      "check": "agent_shift_completeness",
+      "table": "agent_shifts",
+      "layer": "silver",
+      "success": false,
+      "details": "2 agents missing shift data"
+    }
+  ]
+}

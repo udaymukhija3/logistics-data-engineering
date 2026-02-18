@@ -14,31 +14,74 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from src.domain.constants import (
+    DELIVERY_FAILURE_REASONS,
+    TOPIC_AGENT_POSITIONS,
+    TOPIC_DELIVERY_EVENTS,
+)
+from src.utils.geo import bearing_degrees, haversine_distance_km, move_point
+from src.utils.validation import require_positive_int, require_positive_number
 
 from .base import BaseSimulator, logger
-
 
 # Delivery zones in major cities
 DELIVERY_ZONES = {
     "DEL": [
-        {"zone_id": "DEL_Z1", "name": "Central Delhi", "lat": 28.6139, "lng": 77.2090, "radius_km": 5},
-        {"zone_id": "DEL_Z2", "name": "South Delhi", "lat": 28.5245, "lng": 77.2066, "radius_km": 6},
+        {
+            "zone_id": "DEL_Z1",
+            "name": "Central Delhi",
+            "lat": 28.6139,
+            "lng": 77.2090,
+            "radius_km": 5,
+        },
+        {
+            "zone_id": "DEL_Z2",
+            "name": "South Delhi",
+            "lat": 28.5245,
+            "lng": 77.2066,
+            "radius_km": 6,
+        },
         {"zone_id": "DEL_Z3", "name": "East Delhi", "lat": 28.6280, "lng": 77.2950, "radius_km": 5},
         {"zone_id": "DEL_Z4", "name": "Gurgaon", "lat": 28.4595, "lng": 77.0266, "radius_km": 8},
         {"zone_id": "DEL_Z5", "name": "Noida", "lat": 28.5355, "lng": 77.3910, "radius_km": 7},
     ],
     "MUM": [
-        {"zone_id": "MUM_Z1", "name": "Mumbai Central", "lat": 18.9712, "lng": 72.8197, "radius_km": 4},
+        {
+            "zone_id": "MUM_Z1",
+            "name": "Mumbai Central",
+            "lat": 18.9712,
+            "lng": 72.8197,
+            "radius_km": 4,
+        },
         {"zone_id": "MUM_Z2", "name": "Andheri", "lat": 19.1136, "lng": 72.8697, "radius_km": 5},
         {"zone_id": "MUM_Z3", "name": "Thane", "lat": 19.2183, "lng": 72.9781, "radius_km": 6},
-        {"zone_id": "MUM_Z4", "name": "Navi Mumbai", "lat": 19.0330, "lng": 73.0297, "radius_km": 7},
+        {
+            "zone_id": "MUM_Z4",
+            "name": "Navi Mumbai",
+            "lat": 19.0330,
+            "lng": 73.0297,
+            "radius_km": 7,
+        },
     ],
     "BLR": [
-        {"zone_id": "BLR_Z1", "name": "Koramangala", "lat": 12.9352, "lng": 77.6245, "radius_km": 4},
+        {
+            "zone_id": "BLR_Z1",
+            "name": "Koramangala",
+            "lat": 12.9352,
+            "lng": 77.6245,
+            "radius_km": 4,
+        },
         {"zone_id": "BLR_Z2", "name": "Whitefield", "lat": 12.9698, "lng": 77.7500, "radius_km": 5},
-        {"zone_id": "BLR_Z3", "name": "Electronic City", "lat": 12.8399, "lng": 77.6770, "radius_km": 5},
+        {
+            "zone_id": "BLR_Z3",
+            "name": "Electronic City",
+            "lat": 12.8399,
+            "lng": 77.6770,
+            "radius_km": 5,
+        },
         {"zone_id": "BLR_Z4", "name": "HSR Layout", "lat": 12.9116, "lng": 77.6389, "radius_km": 4},
     ],
 }
@@ -47,8 +90,10 @@ DELIVERY_ZONES = {
 @dataclass
 class DeliveryOrder:
     """Represents a delivery order assigned to an agent."""
+
     order_id: str
     shipment_id: str
+    customer_id: str
     customer_name: str
     customer_phone: str
     delivery_address: str
@@ -65,6 +110,7 @@ class DeliveryOrder:
 @dataclass
 class DeliveryAgent:
     """Represents a delivery agent."""
+
     agent_id: str
     name: str
     phone: str
@@ -105,17 +151,18 @@ class DeliverySimulator(BaseSimulator):
         num_agents: int = 100,
         kafka_bootstrap_servers: str = "localhost:9092",
         gps_interval_seconds: float = 30.0,
-        **kwargs
+        **kwargs,
     ):
+        require_positive_int(num_agents, "num_agents")
+        require_positive_number(gps_interval_seconds, "gps_interval_seconds")
+
         super().__init__(
-            kafka_bootstrap_servers=kafka_bootstrap_servers,
-            topic="agent_positions",
-            **kwargs
+            kafka_bootstrap_servers=kafka_bootstrap_servers, topic=TOPIC_AGENT_POSITIONS, **kwargs
         )
         self.num_agents = num_agents
         self.gps_interval_seconds = gps_interval_seconds
         self.agents: List[DeliveryAgent] = []
-        self.delivery_topic = "delivery_events"
+        self.delivery_topic = TOPIC_DELIVERY_EVENTS
         self._initialize_agents()
 
     def _initialize_agents(self):
@@ -127,10 +174,40 @@ class DeliverySimulator(BaseSimulator):
         vehicle_types = ["BIKE"] * 60 + ["SCOOTER"] * 35 + ["BICYCLE"] * 5
         random.shuffle(vehicle_types)
 
-        first_names = ["Raj", "Amit", "Suresh", "Rahul", "Vijay", "Anil", "Sanjay", "Rakesh",
-                       "Deepak", "Ashok", "Manoj", "Ramesh", "Vikram", "Ajay", "Ravi"]
-        last_names = ["Kumar", "Singh", "Sharma", "Verma", "Gupta", "Patel", "Shah", "Mehta",
-                      "Joshi", "Rao", "Reddy", "Nair", "Menon", "Pillai", "Iyer"]
+        first_names = [
+            "Raj",
+            "Amit",
+            "Suresh",
+            "Rahul",
+            "Vijay",
+            "Anil",
+            "Sanjay",
+            "Rakesh",
+            "Deepak",
+            "Ashok",
+            "Manoj",
+            "Ramesh",
+            "Vikram",
+            "Ajay",
+            "Ravi",
+        ]
+        last_names = [
+            "Kumar",
+            "Singh",
+            "Sharma",
+            "Verma",
+            "Gupta",
+            "Patel",
+            "Shah",
+            "Mehta",
+            "Joshi",
+            "Rao",
+            "Reddy",
+            "Nair",
+            "Menon",
+            "Pillai",
+            "Iyer",
+        ]
 
         for i in range(self.num_agents):
             zone = all_zones[i % len(all_zones)]
@@ -172,13 +249,16 @@ class DeliverySimulator(BaseSimulator):
         angle = random.uniform(0, 2 * math.pi)
         distance = random.uniform(0.5, 3)  # 0.5-3 km from zone center
         lat_offset = (distance / 111) * math.cos(angle)
-        lng_offset = (distance / (111 * math.cos(math.radians(agent.zone_center_lat)))) * math.sin(angle)
+        lng_offset = (distance / (111 * math.cos(math.radians(agent.zone_center_lat)))) * math.sin(
+            angle
+        )
 
         is_cod = random.random() < 0.4
 
         return DeliveryOrder(
             order_id=f"ORD-{uuid.uuid4().hex[:12].upper()}",
             shipment_id=f"SHP-{uuid.uuid4().hex[:12].upper()}",
+            customer_id=f"CST-{random.randint(1, 100000):06d}",
             customer_name=f"Customer {random.randint(1, 10000)}",
             customer_phone=f"+91{random.randint(7000000000, 9999999999)}",
             delivery_address=f"{random.randint(1, 500)}, Block {random.choice('ABCDEFGH')}, Sector {random.randint(1, 50)}",
@@ -191,45 +271,15 @@ class DeliverySimulator(BaseSimulator):
 
     def _haversine_distance(self, lat1: float, lng1: float, lat2: float, lng2: float) -> float:
         """Calculate distance between two points in kilometers."""
-        R = 6371
-        lat1_rad, lat2_rad = math.radians(lat1), math.radians(lat2)
-        delta_lat = math.radians(lat2 - lat1)
-        delta_lng = math.radians(lng2 - lng1)
-
-        a = (math.sin(delta_lat/2)**2 +
-             math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lng/2)**2)
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-        return R * c
+        return haversine_distance_km(lat1, lng1, lat2, lng2)
 
     def _calculate_bearing(self, lat1: float, lng1: float, lat2: float, lng2: float) -> float:
         """Calculate bearing from point 1 to point 2."""
-        lat1_rad, lat2_rad = math.radians(lat1), math.radians(lat2)
-        delta_lng = math.radians(lng2 - lng1)
+        return bearing_degrees(lat1, lng1, lat2, lng2)
 
-        x = math.sin(delta_lng) * math.cos(lat2_rad)
-        y = (math.cos(lat1_rad) * math.sin(lat2_rad) -
-             math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(delta_lng))
-
-        return (math.degrees(math.atan2(x, y)) + 360) % 360
-
-    def _move_point(self, lat: float, lng: float, bearing: float, distance_km: float) -> Tuple[float, float]:
+    def _move_point(self, lat: float, lng: float, bearing: float, distance_km: float):
         """Move a point by distance in the direction of bearing."""
-        R = 6371
-        lat_rad = math.radians(lat)
-        lng_rad = math.radians(lng)
-        bearing_rad = math.radians(bearing)
-
-        new_lat_rad = math.asin(
-            math.sin(lat_rad) * math.cos(distance_km/R) +
-            math.cos(lat_rad) * math.sin(distance_km/R) * math.cos(bearing_rad)
-        )
-
-        new_lng_rad = lng_rad + math.atan2(
-            math.sin(bearing_rad) * math.sin(distance_km/R) * math.cos(lat_rad),
-            math.cos(distance_km/R) - math.sin(lat_rad) * math.sin(new_lat_rad)
-        )
-
-        return math.degrees(new_lat_rad), math.degrees(new_lng_rad)
+        return move_point(lat, lng, bearing, distance_km)
 
     def _get_max_speed(self, agent: DeliveryAgent) -> float:
         """Get max speed based on vehicle type."""
@@ -274,7 +324,7 @@ class DeliverySimulator(BaseSimulator):
 
             # Slow down when approaching
             if distance < 0.5:
-                target_speed *= (distance / 0.5)
+                target_speed *= distance / 0.5
 
             agent.current_speed = max(0, target_speed + random.uniform(-5, 5))
 
@@ -342,29 +392,35 @@ class DeliverySimulator(BaseSimulator):
             event = self._generate_delivery_event(agent, order, "DELIVERED")
 
         else:
-            failure_reason = random.choice([
-                "CUSTOMER_NOT_AVAILABLE",
-                "WRONG_ADDRESS",
-                "ACCESS_RESTRICTED",
-                "CUSTOMER_REFUSED",
-                "PAYMENT_ISSUE" if order.is_cod else "CUSTOMER_NOT_AVAILABLE",
-            ])
+            failure_reason = random.choice(
+                [
+                    reason
+                    for reason in DELIVERY_FAILURE_REASONS
+                    if reason not in {"DAMAGED_PACKAGE", "OTHER"}
+                ]
+            )
+            if not order.is_cod and failure_reason == "PAYMENT_ISSUE":
+                failure_reason = "CUSTOMER_NOT_AVAILABLE"
 
             if order.attempts >= 3:
                 order.status = "FAILED"
                 agent.failed_deliveries += 1
-                event = self._generate_delivery_event(agent, order, "DELIVERY_FAILED", failure_reason)
+                event = self._generate_delivery_event(
+                    agent, order, "DELIVERY_FAILED", failure_reason
+                )
             else:
                 # Will retry later - put back in queue
                 order.status = "ASSIGNED"
                 agent.pending_orders.append(order)
-                event = self._generate_delivery_event(agent, order, "DELIVERY_ATTEMPTED", failure_reason)
+                event = self._generate_delivery_event(
+                    agent, order, "DELIVERY_ATTEMPTED", failure_reason
+                )
 
         # Reset stop state
         agent.is_at_stop = False
         agent.stop_start_time = None
         agent.current_order = None
-        agent.status = "AVAILABLE" if agent.pending_orders else "AVAILABLE"
+        agent.status = "AVAILABLE"
 
         # Add new order occasionally
         if random.random() < 0.3:
@@ -378,7 +434,7 @@ class DeliverySimulator(BaseSimulator):
         agent: DeliveryAgent,
         order: DeliveryOrder,
         event_type: str,
-        failure_reason: str = None
+        failure_reason: str = None,
     ) -> Dict[str, Any]:
         """Generate a delivery event."""
         pod_type = None
@@ -397,20 +453,30 @@ class DeliverySimulator(BaseSimulator):
             "agent_name": agent.name,
             "order_id": order.order_id,
             "shipment_id": order.shipment_id,
-            "customer_id": order.customer_name,  # Simplified
+            "customer_id": order.customer_id,
             "delivery_lat": order.delivery_lat,
             "delivery_lng": order.delivery_lng,
             "delivery_address": order.delivery_address,
             "zone_id": agent.zone_id,
             "is_cod": order.is_cod,
             "cod_amount": order.cod_amount if order.is_cod else None,
-            "cod_collected": order.cod_amount if (event_type == "DELIVERED" and order.is_cod) else None,
-            "payment_mode": random.choice(["CASH", "UPI"]) if (event_type == "DELIVERED" and order.is_cod) else None,
+            "cod_collected": (
+                order.cod_amount if (event_type == "DELIVERED" and order.is_cod) else None
+            ),
+            "payment_mode": (
+                random.choice(["CASH", "UPI"])
+                if (event_type == "DELIVERED" and order.is_cod)
+                else None
+            ),
             "attempt_number": order.attempts,
             "failure_reason": failure_reason,
             "pod_type": pod_type,
             "customer_rating": customer_rating,
-            "time_at_location_seconds": int((datetime.utcnow() - agent.stop_start_time).total_seconds()) if agent.stop_start_time else None,
+            "time_at_location_seconds": (
+                int((datetime.utcnow() - agent.stop_start_time).total_seconds())
+                if agent.stop_start_time
+                else None
+            ),
         }
 
     def generate_event(self, agent: DeliveryAgent = None) -> Dict[str, Any]:
@@ -444,6 +510,11 @@ class DeliverySimulator(BaseSimulator):
 
     def run(self, duration_seconds: int = None, max_events: int = None):
         """Run the delivery agent simulator."""
+        if duration_seconds is not None:
+            require_positive_int(duration_seconds, "duration_seconds")
+        if max_events is not None:
+            require_positive_int(max_events, "max_events")
+
         if not self.connect():
             logger.error("Failed to connect to Kafka, running in dry-run mode")
 
@@ -455,29 +526,32 @@ class DeliverySimulator(BaseSimulator):
                 cycle_start = time.time()
 
                 for agent in self.agents:
-                    # Update position
-                    self._update_agent_position(agent)
+                    try:
+                        # Update position
+                        self._update_agent_position(agent)
 
-                    # Generate GPS event
-                    gps_event = self.generate_event(agent)
-                    if self.producer:
-                        self.send(gps_event, key=agent.agent_id)
+                        # Generate GPS event
+                        gps_event = self.generate_event(agent)
+                        if self.producer:
+                            self.send(gps_event, key=agent.agent_id)
 
-                    # Process any stops (deliveries)
-                    delivery_event = self._process_stop(agent)
-                    if delivery_event and self.producer:
-                        self.producer.send(
-                            self.delivery_topic,
-                            key=agent.agent_id,
-                            value=delivery_event
-                        )
+                        # Process any stops (deliveries)
+                        delivery_event = self._process_stop(agent)
+                        if delivery_event and self.producer:
+                            self.producer.send(
+                                self.delivery_topic, key=agent.agent_id, value=delivery_event
+                            )
+                    except Exception:
+                        logger.exception("Failed to process agent %s", agent.agent_id)
 
                 # Log stats
                 if self.message_count % 200 == 0 and self.message_count > 0:
                     self._log_stats()
                     on_delivery = sum(1 for a in self.agents if a.status == "ON_DELIVERY")
                     total_completed = sum(a.completed_deliveries for a in self.agents)
-                    logger.info(f"On delivery: {on_delivery}/{self.num_agents}, Total completed: {total_completed}")
+                    logger.info(
+                        f"On delivery: {on_delivery}/{self.num_agents}, Total completed: {total_completed}"
+                    )
 
                 # Check termination
                 if duration_seconds and (time.time() - self.start_time) >= duration_seconds:

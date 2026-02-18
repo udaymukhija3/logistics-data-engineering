@@ -8,13 +8,16 @@ Simulates:
 - Driving events (speeding, harsh braking, idle)
 """
 
-import math
 import random
 import time
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from src.domain.constants import TOPIC_ALERTS, TOPIC_VEHICLE_POSITIONS, TOPIC_VEHICLE_TELEMETRY
+from src.utils.geo import bearing_degrees, haversine_distance_km, move_point
+from src.utils.validation import require_positive_int, require_positive_number
 
 from .base import BaseSimulator, logger
 
@@ -45,6 +48,7 @@ HUB_LOCATIONS = [
 @dataclass
 class Vehicle:
     """Represents a single vehicle in the fleet."""
+
     vehicle_id: str
     vehicle_type: str  # TRUCK, VAN, BIKE
     driver_id: str
@@ -80,17 +84,18 @@ class VehicleSimulator(BaseSimulator):
         num_vehicles: int = 50,
         kafka_bootstrap_servers: str = "localhost:9092",
         gps_interval_seconds: float = 10.0,
-        **kwargs
+        **kwargs,
     ):
+        require_positive_int(num_vehicles, "num_vehicles")
+        require_positive_number(gps_interval_seconds, "gps_interval_seconds")
+
         super().__init__(
-            kafka_bootstrap_servers=kafka_bootstrap_servers,
-            topic="vehicle_positions",
-            **kwargs
+            kafka_bootstrap_servers=kafka_bootstrap_servers, topic=TOPIC_VEHICLE_POSITIONS, **kwargs
         )
         self.num_vehicles = num_vehicles
         self.gps_interval_seconds = gps_interval_seconds
         self.vehicles: List[Vehicle] = []
-        self.telemetry_topic = "vehicle_telemetry"
+        self.telemetry_topic = TOPIC_VEHICLE_TELEMETRY
         self._initialize_fleet()
 
     def _initialize_fleet(self):
@@ -154,8 +159,10 @@ class VehicleSimulator(BaseSimulator):
             # Check if near destination
             if vehicle.destination:
                 dist = self._haversine_distance(
-                    vehicle.current_lat, vehicle.current_lng,
-                    vehicle.destination["lat"], vehicle.destination["lng"]
+                    vehicle.current_lat,
+                    vehicle.current_lng,
+                    vehicle.destination["lat"],
+                    vehicle.destination["lng"],
                 )
                 if dist < 0.5:  # Within 500m of destination
                     return True
@@ -181,7 +188,7 @@ class VehicleSimulator(BaseSimulator):
             HUB_LOCATIONS,
             key=lambda h: self._haversine_distance(
                 vehicle.current_lat, vehicle.current_lng, h["lat"], h["lng"]
-            )
+            ),
         )
 
         other_hubs = [h for h in HUB_LOCATIONS if h["id"] != current_hub["id"]]
@@ -203,8 +210,7 @@ class VehicleSimulator(BaseSimulator):
         dest_lng = vehicle.destination["lng"]
 
         bearing = self._calculate_bearing(
-            vehicle.current_lat, vehicle.current_lng,
-            dest_lat, dest_lng
+            vehicle.current_lat, vehicle.current_lng, dest_lat, dest_lng
         )
 
         # Add some randomness to simulate road curves
@@ -227,8 +233,7 @@ class VehicleSimulator(BaseSimulator):
 
         # Update position
         new_lat, new_lng = self._move_point(
-            vehicle.current_lat, vehicle.current_lng,
-            bearing, distance_km
+            vehicle.current_lat, vehicle.current_lng, bearing, distance_km
         )
 
         vehicle.current_lat = new_lat
@@ -244,53 +249,23 @@ class VehicleSimulator(BaseSimulator):
         vehicle.fuel_level -= distance_km * fuel_consumption.get(vehicle.vehicle_type, 0.1)
         vehicle.fuel_level = max(5, vehicle.fuel_level)  # Min 5% fuel
 
-    def _haversine_distance(self, lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    def _haversine_distance(
+        self,
+        lat1: float,
+        lng1: float,
+        lat2: float,
+        lng2: float,
+    ) -> float:
         """Calculate distance between two points in kilometers."""
-        R = 6371  # Earth's radius in km
-
-        lat1_rad = math.radians(lat1)
-        lat2_rad = math.radians(lat2)
-        delta_lat = math.radians(lat2 - lat1)
-        delta_lng = math.radians(lng2 - lng1)
-
-        a = (math.sin(delta_lat/2)**2 +
-             math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lng/2)**2)
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
-        return R * c
+        return haversine_distance_km(lat1, lng1, lat2, lng2)
 
     def _calculate_bearing(self, lat1: float, lng1: float, lat2: float, lng2: float) -> float:
         """Calculate bearing from point 1 to point 2 in degrees."""
-        lat1_rad = math.radians(lat1)
-        lat2_rad = math.radians(lat2)
-        delta_lng = math.radians(lng2 - lng1)
+        return bearing_degrees(lat1, lng1, lat2, lng2)
 
-        x = math.sin(delta_lng) * math.cos(lat2_rad)
-        y = (math.cos(lat1_rad) * math.sin(lat2_rad) -
-             math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(delta_lng))
-
-        bearing = math.atan2(x, y)
-        return (math.degrees(bearing) + 360) % 360
-
-    def _move_point(self, lat: float, lng: float, bearing: float, distance_km: float) -> Tuple[float, float]:
+    def _move_point(self, lat: float, lng: float, bearing: float, distance_km: float):
         """Move a point by distance in the direction of bearing."""
-        R = 6371  # Earth's radius in km
-
-        lat_rad = math.radians(lat)
-        lng_rad = math.radians(lng)
-        bearing_rad = math.radians(bearing)
-
-        new_lat_rad = math.asin(
-            math.sin(lat_rad) * math.cos(distance_km/R) +
-            math.cos(lat_rad) * math.sin(distance_km/R) * math.cos(bearing_rad)
-        )
-
-        new_lng_rad = lng_rad + math.atan2(
-            math.sin(bearing_rad) * math.sin(distance_km/R) * math.cos(lat_rad),
-            math.cos(distance_km/R) - math.sin(lat_rad) * math.sin(new_lat_rad)
-        )
-
-        return math.degrees(new_lat_rad), math.degrees(new_lng_rad)
+        return move_point(lat, lng, bearing, distance_km)
 
     def _detect_driving_event(self, vehicle: Vehicle, prev_speed: float) -> Optional[Dict]:
         """Detect driving events like speeding, harsh braking."""
@@ -300,32 +275,38 @@ class VehicleSimulator(BaseSimulator):
         speed_limit = 80 if vehicle.vehicle_type == "TRUCK" else 70
         if vehicle.current_speed > speed_limit:
             severity = "WARNING" if vehicle.current_speed < speed_limit + 20 else "HIGH"
-            events.append({
-                "event_type": "SPEEDING",
-                "severity": severity,
-                "speed": round(vehicle.current_speed, 1),
-                "speed_limit": speed_limit,
-                "overspeed_by": round(vehicle.current_speed - speed_limit, 1),
-            })
+            events.append(
+                {
+                    "event_type": "SPEEDING",
+                    "severity": severity,
+                    "speed": round(vehicle.current_speed, 1),
+                    "speed_limit": speed_limit,
+                    "overspeed_by": round(vehicle.current_speed - speed_limit, 1),
+                }
+            )
 
         # Harsh braking detection (deceleration > 4 m/s²)
         speed_change = prev_speed - vehicle.current_speed  # km/h
         decel_ms2 = (speed_change * 1000 / 3600) / self.gps_interval_seconds
 
         if decel_ms2 > 4:
-            events.append({
-                "event_type": "HARSH_BRAKING",
-                "severity": "WARNING" if decel_ms2 < 6 else "HIGH",
-                "deceleration_ms2": round(decel_ms2, 2),
-            })
+            events.append(
+                {
+                    "event_type": "HARSH_BRAKING",
+                    "severity": "WARNING" if decel_ms2 < 6 else "HIGH",
+                    "deceleration_ms2": round(decel_ms2, 2),
+                }
+            )
 
         # Harsh acceleration
         if decel_ms2 < -3.5:
-            events.append({
-                "event_type": "HARSH_ACCELERATION",
-                "severity": "INFO",
-                "acceleration_ms2": round(-decel_ms2, 2),
-            })
+            events.append(
+                {
+                    "event_type": "HARSH_ACCELERATION",
+                    "severity": "INFO",
+                    "acceleration_ms2": round(-decel_ms2, 2),
+                }
+            )
 
         return events[0] if events else None
 
@@ -393,6 +374,11 @@ class VehicleSimulator(BaseSimulator):
             duration_seconds: How long to run (None = forever)
             max_events: Max events to generate (None = unlimited)
         """
+        if duration_seconds is not None:
+            require_positive_int(duration_seconds, "duration_seconds")
+        if max_events is not None:
+            require_positive_int(max_events, "max_events")
+
         if not self.connect():
             logger.error("Failed to connect to Kafka, running in dry-run mode")
 
@@ -406,62 +392,67 @@ class VehicleSimulator(BaseSimulator):
                 cycle_start = time.time()
 
                 for vehicle in self.vehicles:
-                    prev_speed = vehicle.current_speed
+                    try:
+                        prev_speed = vehicle.current_speed
 
-                    # State machine
-                    if self._should_stop(vehicle):
-                        vehicle.state = "STOPPED"
-                        vehicle.current_speed = 0
-                        vehicle.last_stop_time = datetime.now()
+                        # State machine
+                        if self._should_stop(vehicle):
+                            vehicle.state = "STOPPED"
+                            vehicle.current_speed = 0
+                            vehicle.last_stop_time = datetime.now()
 
-                        # Check if trip completed
-                        if vehicle.destination:
-                            dist = self._haversine_distance(
-                                vehicle.current_lat, vehicle.current_lng,
-                                vehicle.destination["lat"], vehicle.destination["lng"]
-                            )
-                            if dist < 1:  # Within 1km
-                                vehicle.trip_id = None
-                                vehicle.destination = None
-                                vehicle.state = "IDLE"
-                                logger.debug(f"Vehicle {vehicle.vehicle_id} completed trip")
+                            # Check if trip completed
+                            if vehicle.destination:
+                                dist = self._haversine_distance(
+                                    vehicle.current_lat,
+                                    vehicle.current_lng,
+                                    vehicle.destination["lat"],
+                                    vehicle.destination["lng"],
+                                )
+                                if dist < 1:  # Within 1km
+                                    vehicle.trip_id = None
+                                    vehicle.destination = None
+                                    vehicle.state = "IDLE"
+                                    logger.debug(f"Vehicle {vehicle.vehicle_id} completed trip")
 
-                    elif self._should_start_moving(vehicle):
-                        self._assign_destination(vehicle)
+                        elif self._should_start_moving(vehicle):
+                            self._assign_destination(vehicle)
 
-                    # Update position if moving
-                    self._update_position(vehicle)
+                        # Update position if moving
+                        self._update_position(vehicle)
 
-                    # Generate GPS event
-                    gps_event = self.generate_event(vehicle)
-                    if self.producer:
-                        self.send(gps_event, key=vehicle.vehicle_id)
-
-                    # Detect driving events
-                    driving_event = self._detect_driving_event(vehicle, prev_speed)
-                    if driving_event:
-                        alert = {
-                            **driving_event,
-                            "event_id": f"DRV-{uuid.uuid4().hex[:12].upper()}",
-                            "vehicle_id": vehicle.vehicle_id,
-                            "driver_id": vehicle.driver_id,
-                            "timestamp": self._get_timestamp(),
-                            "latitude": gps_event["latitude"],
-                            "longitude": gps_event["longitude"],
-                        }
+                        # Generate GPS event
+                        gps_event = self.generate_event(vehicle)
                         if self.producer:
-                            self.producer.send("alerts", key=vehicle.vehicle_id, value=alert)
+                            self.send(gps_event, key=vehicle.vehicle_id)
 
-                    # Generate telemetry less frequently (every 30 seconds = every 3rd GPS)
-                    telemetry_counter += 1
-                    if telemetry_counter % 3 == 0:
-                        telemetry = self.generate_telemetry(vehicle)
-                        if self.producer:
-                            self.producer.send(
-                                self.telemetry_topic,
-                                key=vehicle.vehicle_id,
-                                value=telemetry
-                            )
+                        # Detect driving events
+                        driving_event = self._detect_driving_event(vehicle, prev_speed)
+                        if driving_event:
+                            alert = {
+                                **driving_event,
+                                "event_id": f"DRV-{uuid.uuid4().hex[:12].upper()}",
+                                "vehicle_id": vehicle.vehicle_id,
+                                "driver_id": vehicle.driver_id,
+                                "timestamp": self._get_timestamp(),
+                                "latitude": gps_event["latitude"],
+                                "longitude": gps_event["longitude"],
+                            }
+                            if self.producer:
+                                self.producer.send(
+                                    TOPIC_ALERTS, key=vehicle.vehicle_id, value=alert
+                                )
+
+                        # Generate telemetry less frequently (every 30 seconds = every 3rd GPS)
+                        telemetry_counter += 1
+                        if telemetry_counter % 3 == 0:
+                            telemetry = self.generate_telemetry(vehicle)
+                            if self.producer:
+                                self.producer.send(
+                                    self.telemetry_topic, key=vehicle.vehicle_id, value=telemetry
+                                )
+                    except Exception:
+                        logger.exception("Failed to process vehicle %s", vehicle.vehicle_id)
 
                 # Log stats periodically
                 if self.message_count % 500 == 0:

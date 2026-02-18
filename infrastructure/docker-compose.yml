@@ -125,8 +125,8 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-change-me}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -145,9 +145,12 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-change-me}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me}
     entrypoint: >
       /bin/sh -c "
-      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc alias set myminio http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
       mc mb myminio/bronze --ignore-existing;
       mc mb myminio/silver --ignore-existing;
       mc mb myminio/gold --ignore-existing;
@@ -162,9 +165,9 @@ services:
     image: postgis/postgis:15-3.3
     container_name: logistics_postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: logistics
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-logistics}
     ports:
       - "5432:5432"
     volumes:
@@ -189,8 +192,8 @@ services:
         condition: service_healthy
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@postgres/logistics
-      - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change-me}@postgres/${POSTGRES_DB:-logistics}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW__CORE__FERNET_KEY:-change-me}
       - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=true
@@ -207,7 +210,7 @@ services:
     command: >
       bash -c "
         airflow db init &&
-        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
+        airflow users create --username admin --password ${AIRFLOW_ADMIN_PASSWORD:-change-me} --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
         airflow webserver & airflow scheduler
       "
     healthcheck:

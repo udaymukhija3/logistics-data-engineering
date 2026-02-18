@@ -2,16 +2,18 @@
 Unit tests for data simulators.
 """
 
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.simulators.vehicle_simulator import VehicleSimulator, Vehicle
-from src.simulators.shipment_simulator import ShipmentSimulator, Shipment, ShipmentState
-from src.simulators.delivery_simulator import DeliverySimulator, DeliveryAgent
+from src.domain.constants import INDIA_BOUNDS
+from src.simulators.delivery_simulator import DeliveryAgent, DeliverySimulator
+from src.simulators.shipment_simulator import Shipment, ShipmentSimulator, ShipmentState
+from src.simulators.vehicle_simulator import Vehicle, VehicleSimulator
 
 
 class TestVehicleSimulator:
@@ -27,20 +29,24 @@ class TestVehicleSimulator:
         simulator = VehicleSimulator(num_vehicles=1)
         vehicle = simulator.vehicles[0]
 
-        assert hasattr(vehicle, 'vehicle_id')
-        assert hasattr(vehicle, 'driver_id')
-        assert hasattr(vehicle, 'current_lat')
-        assert hasattr(vehicle, 'current_lng')
-        assert hasattr(vehicle, 'current_speed')
-        assert hasattr(vehicle, 'vehicle_type')
+        assert hasattr(vehicle, "vehicle_id")
+        assert hasattr(vehicle, "driver_id")
+        assert hasattr(vehicle, "current_lat")
+        assert hasattr(vehicle, "current_lng")
+        assert hasattr(vehicle, "current_speed")
+        assert hasattr(vehicle, "vehicle_type")
 
     def test_vehicle_position_in_india(self):
         """Test that vehicles start within India bounds."""
         simulator = VehicleSimulator(num_vehicles=50)
 
         for vehicle in simulator.vehicles:
-            assert 8.0 <= vehicle.current_lat <= 37.0, f"Latitude {vehicle.current_lat} out of bounds"
-            assert 68.0 <= vehicle.current_lng <= 97.5, f"Longitude {vehicle.current_lng} out of bounds"
+            assert (
+                INDIA_BOUNDS["lat_min"] <= vehicle.current_lat <= INDIA_BOUNDS["lat_max"]
+            ), f"Latitude {vehicle.current_lat} out of bounds"
+            assert (
+                INDIA_BOUNDS["lng_min"] <= vehicle.current_lng <= INDIA_BOUNDS["lng_max"]
+            ), f"Longitude {vehicle.current_lng} out of bounds"
 
     def test_generate_event_returns_dict(self):
         """Test that generate_event returns a dictionary."""
@@ -48,11 +54,11 @@ class TestVehicleSimulator:
         event = simulator.generate_event(simulator.vehicles[0])
 
         assert isinstance(event, dict)
-        assert 'event_id' in event
-        assert 'vehicle_id' in event
-        assert 'latitude' in event
-        assert 'longitude' in event
-        assert 'speed_kmh' in event
+        assert "event_id" in event
+        assert "vehicle_id" in event
+        assert "latitude" in event
+        assert "longitude" in event
+        assert "speed_kmh" in event
 
     def test_haversine_distance(self):
         """Test haversine distance calculation."""
@@ -65,6 +71,16 @@ class TestVehicleSimulator:
         # Same point should be 0
         distance = simulator._haversine_distance(28.6139, 77.2090, 28.6139, 77.2090)
         assert distance < 0.001
+
+    def test_invalid_vehicle_count_raises(self):
+        """Test constructor input validation."""
+        with pytest.raises(ValueError):
+            VehicleSimulator(num_vehicles=0)
+
+    def test_invalid_gps_interval_raises(self):
+        """Test constructor input validation."""
+        with pytest.raises(ValueError):
+            VehicleSimulator(num_vehicles=1, gps_interval_seconds=0)
 
 
 class TestShipmentSimulator:
@@ -82,7 +98,7 @@ class TestShipmentSimulator:
         shipment = simulator._create_shipment()
 
         assert isinstance(shipment, Shipment)
-        assert shipment.shipment_id.startswith('SHP-')
+        assert shipment.shipment_id.startswith("SHP-")
         assert shipment.origin_hub in simulator.hub_network
         assert shipment.destination_hub in simulator.hub_network
         assert len(shipment.route) >= 1
@@ -91,9 +107,9 @@ class TestShipmentSimulator:
         """Test route finding between hubs."""
         simulator = ShipmentSimulator()
 
-        route = simulator._find_route('HUB_DEL_01', 'HUB_BLR_01')
-        assert route[0] == 'HUB_DEL_01'
-        assert route[-1] == 'HUB_BLR_01'
+        route = simulator._find_route("HUB_DEL_01", "HUB_BLR_01")
+        assert route[0] == "HUB_DEL_01"
+        assert route[-1] == "HUB_BLR_01"
         assert len(route) >= 2
 
     def test_shipment_state_transitions(self):
@@ -115,10 +131,15 @@ class TestShipmentSimulator:
         event = simulator.generate_event(shipment)
 
         assert isinstance(event, dict)
-        assert 'event_id' in event
-        assert 'shipment_id' in event
-        assert 'event_type' in event
-        assert 'timestamp' in event
+        assert "event_id" in event
+        assert "shipment_id" in event
+        assert "event_type" in event
+        assert "timestamp" in event
+
+    def test_invalid_shipment_rate_raises(self):
+        """Test constructor input validation."""
+        with pytest.raises(ValueError):
+            ShipmentSimulator(shipments_per_minute=0)
 
 
 class TestDeliverySimulator:
@@ -134,19 +155,23 @@ class TestDeliverySimulator:
         simulator = DeliverySimulator(num_agents=1)
         agent = simulator.agents[0]
 
-        assert hasattr(agent, 'agent_id')
-        assert hasattr(agent, 'zone_id')
-        assert hasattr(agent, 'current_lat')
-        assert hasattr(agent, 'current_lng')
-        assert hasattr(agent, 'vehicle_type')
+        assert hasattr(agent, "agent_id")
+        assert hasattr(agent, "zone_id")
+        assert hasattr(agent, "current_lat")
+        assert hasattr(agent, "current_lng")
+        assert hasattr(agent, "vehicle_type")
 
     def test_agent_position_in_india(self):
         """Test that agents start within India bounds."""
         simulator = DeliverySimulator(num_agents=50)
 
         for agent in simulator.agents:
-            assert 8.0 <= agent.current_lat <= 37.0, f"Latitude {agent.current_lat} out of bounds"
-            assert 68.0 <= agent.current_lng <= 97.5, f"Longitude {agent.current_lng} out of bounds"
+            assert (
+                INDIA_BOUNDS["lat_min"] <= agent.current_lat <= INDIA_BOUNDS["lat_max"]
+            ), f"Latitude {agent.current_lat} out of bounds"
+            assert (
+                INDIA_BOUNDS["lng_min"] <= agent.current_lng <= INDIA_BOUNDS["lng_max"]
+            ), f"Longitude {agent.current_lng} out of bounds"
 
     def test_agents_have_orders(self):
         """Test that agents start with pending orders."""
@@ -162,10 +187,20 @@ class TestDeliverySimulator:
         event = simulator.generate_event(simulator.agents[0])
 
         assert isinstance(event, dict)
-        assert 'event_id' in event
-        assert 'agent_id' in event
-        assert 'latitude' in event
-        assert 'longitude' in event
+        assert "event_id" in event
+        assert "agent_id" in event
+        assert "latitude" in event
+        assert "longitude" in event
+
+    def test_invalid_agent_count_raises(self):
+        """Test constructor input validation."""
+        with pytest.raises(ValueError):
+            DeliverySimulator(num_agents=0)
+
+    def test_invalid_agent_interval_raises(self):
+        """Test constructor input validation."""
+        with pytest.raises(ValueError):
+            DeliverySimulator(num_agents=1, gps_interval_seconds=0)
 
 
 class TestDataQuality:
@@ -179,17 +214,17 @@ class TestDataQuality:
         for vehicle in simulator.vehicles:
             for _ in range(10):
                 event = simulator.generate_event(vehicle)
-                assert event['event_id'] not in event_ids, "Duplicate event ID"
-                event_ids.add(event['event_id'])
+                assert event["event_id"] not in event_ids, "Duplicate event ID"
+                event_ids.add(event["event_id"])
 
     def test_timestamps_are_valid(self):
         """Test that timestamps are in valid format."""
         simulator = VehicleSimulator(num_vehicles=1)
         event = simulator.generate_event(simulator.vehicles[0])
 
-        timestamp = event['timestamp']
-        assert timestamp.endswith('Z'), "Timestamp should be UTC"
-        assert 'T' in timestamp, "Timestamp should be ISO format"
+        timestamp = event["timestamp"]
+        assert timestamp.endswith("Z"), "Timestamp should be UTC"
+        assert "T" in timestamp, "Timestamp should be ISO format"
 
     def test_speed_is_reasonable(self):
         """Test that generated speeds are reasonable."""
@@ -197,9 +232,9 @@ class TestDataQuality:
 
         for vehicle in simulator.vehicles:
             event = simulator.generate_event(vehicle)
-            speed = event['speed_kmh']
+            speed = event["speed_kmh"]
             assert 0 <= speed <= 200, f"Speed {speed} is out of reasonable range"
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

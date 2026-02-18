@@ -8,8 +8,19 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, Optional
-from kafka import KafkaProducer
-from kafka.errors import NoBrokersAvailable
+
+from src.utils.validation import (
+    require_non_negative_number,
+    require_positive_int,
+    require_positive_number,
+)
+
+try:
+    from kafka import KafkaProducer
+    from kafka.errors import NoBrokersAvailable
+except ImportError:  # pragma: no cover - depends on optional local dependency
+    KafkaProducer = None
+    NoBrokersAvailable = RuntimeError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,23 +36,36 @@ class BaseSimulator(ABC):
         batch_size: int = 100,
         flush_interval_seconds: float = 1.0,
     ):
+        if not topic:
+            raise ValueError("topic must be a non-empty string")
+
+        require_positive_int(batch_size, "batch_size")
+        require_positive_number(flush_interval_seconds, "flush_interval_seconds")
+
         self.kafka_bootstrap_servers = kafka_bootstrap_servers
         self.topic = topic
         self.batch_size = batch_size
         self.flush_interval_seconds = flush_interval_seconds
-        self.producer: Optional[KafkaProducer] = None
+        self.producer: Optional[Any] = None
         self.message_count = 0
         self.start_time = None
 
     def connect(self, max_retries: int = 5, retry_delay: float = 2.0) -> bool:
         """Connect to Kafka with retry logic."""
+        require_positive_int(max_retries, "max_retries")
+        require_non_negative_number(retry_delay, "retry_delay")
+
+        if KafkaProducer is None:
+            logger.warning("kafka-python is not installed; simulator will run in dry-run mode")
+            return False
+
         for attempt in range(max_retries):
             try:
                 self.producer = KafkaProducer(
                     bootstrap_servers=self.kafka_bootstrap_servers,
-                    value_serializer=lambda v: json.dumps(v, default=str).encode('utf-8'),
-                    key_serializer=lambda k: k.encode('utf-8') if k else None,
-                    acks='all',
+                    value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
+                    key_serializer=lambda k: k.encode("utf-8") if k else None,
+                    acks="all",
                     retries=3,
                     batch_size=16384,
                     linger_ms=10,
@@ -62,6 +86,10 @@ class BaseSimulator(ABC):
             logger.error("Producer not connected")
             return False
 
+        if not isinstance(message, dict):
+            logger.error("Message must be a dictionary, got %s", type(message).__name__)
+            return False
+
         try:
             self.producer.send(
                 self.topic,
@@ -74,26 +102,34 @@ class BaseSimulator(ABC):
                 self.producer.flush()
 
             return True
-        except Exception as e:
-            logger.error(f"Failed to send message: {e}")
+        except Exception:
+            logger.exception("Failed to send message to topic %s", self.topic)
             return False
 
     def close(self):
         """Close the Kafka producer."""
         if self.producer:
-            self.producer.flush()
-            self.producer.close()
+            try:
+                self.producer.flush()
+            except Exception:
+                logger.exception("Failed to flush producer during close")
+
+            try:
+                self.producer.close()
+            except Exception:
+                logger.exception("Failed to close producer cleanly")
+
             logger.info(f"Producer closed. Total messages sent: {self.message_count}")
 
     @abstractmethod
     def generate_event(self) -> Dict[str, Any]:
         """Generate a single event. Must be implemented by subclasses."""
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def run(self, duration_seconds: int = None, max_events: int = None):
         """Run the simulator. Must be implemented by subclasses."""
-        pass
+        raise NotImplementedError
 
     def _get_timestamp(self) -> str:
         """Get current timestamp in ISO format."""

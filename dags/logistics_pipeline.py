@@ -9,13 +9,14 @@ Runs at 2 AM daily to:
 5. Run data quality checks
 """
 
+import os
 from datetime import datetime, timedelta
+
 from airflow import DAG
-from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.operators.empty import EmptyOperator
+from airflow.operators.python import PythonOperator
 from airflow.utils.task_group import TaskGroup
-import os
 
 # Configuration
 PROJECT_ROOT = os.getenv("PROJECT_ROOT", "/opt/airflow")
@@ -24,57 +25,57 @@ SPARK_PACKAGES = "io.delta:delta-spark_2.12:3.0.0,org.apache.spark:spark-sql-kaf
 
 # Default arguments
 default_args = {
-    'owner': 'data-engineering',
-    'depends_on_past': False,
-    'email_on_failure': True,
-    'email_on_retry': False,
-    'retries': 3,
-    'retry_delay': timedelta(minutes=5),
-    'execution_timeout': timedelta(hours=2),
+    "owner": "data-engineering",
+    "depends_on_past": False,
+    "email_on_failure": True,
+    "email_on_retry": False,
+    "retries": 3,
+    "retry_delay": timedelta(minutes=5),
+    "execution_timeout": timedelta(hours=2),
 }
 
 # DAG definition
 with DAG(
-    dag_id='logistics_daily_batch_processing',
+    dag_id="logistics_daily_batch_processing",
     default_args=default_args,
-    description='Daily batch processing for logistics platform',
-    schedule_interval='0 2 * * *',  # 2 AM daily
+    description="Daily batch processing for logistics platform",
+    schedule_interval="0 2 * * *",  # 2 AM daily
     start_date=datetime(2025, 1, 1),
     catchup=False,
     max_active_runs=1,
-    tags=['logistics', 'batch', 'daily'],
+    tags=["logistics", "batch", "daily"],
 ) as dag:
 
     # ============================================
     # START
     # ============================================
-    start = EmptyOperator(task_id='start')
+    start = EmptyOperator(task_id="start")
 
     # ============================================
     # GET PROCESSING DATE
     # ============================================
     def get_processing_date(**context):
         """Get the date to process (yesterday)."""
-        execution_date = context['ds']
+        execution_date = context["ds"]
         processing_date = (
-            datetime.strptime(execution_date, '%Y-%m-%d') - timedelta(days=1)
-        ).strftime('%Y-%m-%d')
-        context['ti'].xcom_push(key='processing_date', value=processing_date)
+            datetime.strptime(execution_date, "%Y-%m-%d") - timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+        context["ti"].xcom_push(key="processing_date", value=processing_date)
         return processing_date
 
     get_date = PythonOperator(
-        task_id='get_processing_date',
+        task_id="get_processing_date",
         python_callable=get_processing_date,
     )
 
     # ============================================
     # FLEET TELEMATICS BATCH JOBS
     # ============================================
-    with TaskGroup(group_id='fleet_processing') as fleet_group:
+    with TaskGroup(group_id="fleet_processing") as fleet_group:
 
         trip_reconstruction = BashOperator(
-            task_id='trip_reconstruction',
-            bash_command=f'''
+            task_id="trip_reconstruction",
+            bash_command=f"""
                 spark-submit \
                     --master {SPARK_MASTER} \
                     --packages {SPARK_PACKAGES} \
@@ -82,17 +83,17 @@ with DAG(
                     --date {{{{ ti.xcom_pull(key='processing_date') }}}} \
                     --bronze-path {PROJECT_ROOT}/data/bronze \
                     --silver-path {PROJECT_ROOT}/data/silver
-            ''',
+            """,
         )
 
     # ============================================
     # SHIPMENT TRACKING BATCH JOBS
     # ============================================
-    with TaskGroup(group_id='shipment_processing') as shipment_group:
+    with TaskGroup(group_id="shipment_processing") as shipment_group:
 
         journey_reconstruction = BashOperator(
-            task_id='journey_reconstruction',
-            bash_command=f'''
+            task_id="journey_reconstruction",
+            bash_command=f"""
                 spark-submit \
                     --master {SPARK_MASTER} \
                     --packages {SPARK_PACKAGES} \
@@ -100,17 +101,17 @@ with DAG(
                     --date {{{{ ti.xcom_pull(key='processing_date') }}}} \
                     --bronze-path {PROJECT_ROOT}/data/bronze \
                     --silver-path {PROJECT_ROOT}/data/silver
-            ''',
+            """,
         )
 
     # ============================================
     # LAST-MILE BATCH JOBS
     # ============================================
-    with TaskGroup(group_id='delivery_processing') as delivery_group:
+    with TaskGroup(group_id="delivery_processing") as delivery_group:
 
         agent_shift_agg = BashOperator(
-            task_id='agent_shift_aggregation',
-            bash_command=f'''
+            task_id="agent_shift_aggregation",
+            bash_command=f"""
                 spark-submit \
                     --master {SPARK_MASTER} \
                     --packages {SPARK_PACKAGES} \
@@ -118,37 +119,37 @@ with DAG(
                     --date {{{{ ti.xcom_pull(key='processing_date') }}}} \
                     --bronze-path {PROJECT_ROOT}/data/bronze \
                     --silver-path {PROJECT_ROOT}/data/silver
-            ''',
+            """,
         )
 
     # ============================================
     # DBT TRANSFORMATIONS
     # ============================================
-    with TaskGroup(group_id='dbt_transformations') as dbt_group:
+    with TaskGroup(group_id="dbt_transformations") as dbt_group:
 
         dbt_deps = BashOperator(
-            task_id='dbt_deps',
-            bash_command=f'cd {PROJECT_ROOT}/dbt_logistics && dbt deps --profiles-dir .',
+            task_id="dbt_deps",
+            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt deps --profiles-dir .",
         )
 
         dbt_run_staging = BashOperator(
-            task_id='dbt_run_staging',
-            bash_command=f'cd {PROJECT_ROOT}/dbt_logistics && dbt run --select staging --profiles-dir .',
+            task_id="dbt_run_staging",
+            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt run --select staging --profiles-dir .",
         )
 
         dbt_run_intermediate = BashOperator(
-            task_id='dbt_run_intermediate',
-            bash_command=f'cd {PROJECT_ROOT}/dbt_logistics && dbt run --select intermediate --profiles-dir .',
+            task_id="dbt_run_intermediate",
+            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt run --select intermediate --profiles-dir .",
         )
 
         dbt_run_marts = BashOperator(
-            task_id='dbt_run_marts',
-            bash_command=f'cd {PROJECT_ROOT}/dbt_logistics && dbt run --select marts --profiles-dir .',
+            task_id="dbt_run_marts",
+            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt run --select marts --profiles-dir .",
         )
 
         dbt_test = BashOperator(
-            task_id='dbt_test',
-            bash_command=f'cd {PROJECT_ROOT}/dbt_logistics && dbt test --profiles-dir .',
+            task_id="dbt_test",
+            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt test --profiles-dir .",
         )
 
         dbt_deps >> dbt_run_staging >> dbt_run_intermediate >> dbt_run_marts >> dbt_test
@@ -156,16 +157,16 @@ with DAG(
     # ============================================
     # DATA QUALITY CHECKS
     # ============================================
-    with TaskGroup(group_id='quality_checks') as quality_group:
+    with TaskGroup(group_id="quality_checks") as quality_group:
 
         quality_bronze = BashOperator(
-            task_id='quality_check_bronze',
-            bash_command=f'python {PROJECT_ROOT}/src/quality/quality_checks.py --layer bronze --data-path {PROJECT_ROOT}/data',
+            task_id="quality_check_bronze",
+            bash_command=f"python {PROJECT_ROOT}/src/quality/quality_checks.py --layer bronze --data-path {PROJECT_ROOT}/data",
         )
 
         quality_silver = BashOperator(
-            task_id='quality_check_silver',
-            bash_command=f'python {PROJECT_ROOT}/src/quality/quality_checks.py --layer silver --data-path {PROJECT_ROOT}/data',
+            task_id="quality_check_silver",
+            bash_command=f"python {PROJECT_ROOT}/src/quality/quality_checks.py --layer silver --data-path {PROJECT_ROOT}/data",
         )
 
         [quality_bronze, quality_silver]
@@ -175,20 +176,20 @@ with DAG(
     # ============================================
     def send_completion_alert(**context):
         """Send Slack alert on completion."""
-        processing_date = context['ti'].xcom_pull(key='processing_date')
+        processing_date = context["ti"].xcom_pull(key="processing_date")
         # In production, would send to Slack
         print(f"Daily batch processing completed for {processing_date}")
 
     completion_alert = PythonOperator(
-        task_id='send_completion_alert',
+        task_id="send_completion_alert",
         python_callable=send_completion_alert,
-        trigger_rule='all_success',
+        trigger_rule="all_success",
     )
 
     # ============================================
     # END
     # ============================================
-    end = EmptyOperator(task_id='end')
+    end = EmptyOperator(task_id="end")
 
     # ============================================
     # TASK DEPENDENCIES

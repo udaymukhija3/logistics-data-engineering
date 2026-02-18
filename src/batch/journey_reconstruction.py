@@ -11,12 +11,10 @@ This job:
 
 import argparse
 import logging
-from datetime import datetime, timedelta
-from typing import Optional
 
-from pyspark.sql import SparkSession, DataFrame, Window
+from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType, TimestampType
+from pyspark.storagelevel import StorageLevel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,10 +52,11 @@ class JourneyReconstructor:
     def _create_spark_session(self) -> SparkSession:
         """Create Spark session with Delta Lake support."""
         return (
-            SparkSession.builder
-            .appName("JourneyReconstruction")
+            SparkSession.builder.appName("JourneyReconstruction")
             .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+            .config(
+                "spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+            )
             .config("spark.sql.adaptive.enabled", "true")
             .getOrCreate()
         )
@@ -77,30 +76,19 @@ class JourneyReconstructor:
         """Order and sequence events for each shipment."""
         shipment_window = Window.partitionBy("shipment_id").orderBy("event_timestamp")
 
-        df = df.withColumn(
-            "event_sequence",
-            F.row_number().over(shipment_window)
-        ).withColumn(
-            "prev_event_type",
-            F.lag("event_type").over(shipment_window)
-        ).withColumn(
-            "prev_event_time",
-            F.lag("event_timestamp").over(shipment_window)
-        ).withColumn(
-            "prev_hub_id",
-            F.lag("hub_id").over(shipment_window)
-        ).withColumn(
-            "next_event_type",
-            F.lead("event_type").over(shipment_window)
-        ).withColumn(
-            "next_event_time",
-            F.lead("event_timestamp").over(shipment_window)
+        df = (
+            df.withColumn("event_sequence", F.row_number().over(shipment_window))
+            .withColumn("prev_event_type", F.lag("event_type").over(shipment_window))
+            .withColumn("prev_event_time", F.lag("event_timestamp").over(shipment_window))
+            .withColumn("prev_hub_id", F.lag("hub_id").over(shipment_window))
+            .withColumn("next_event_type", F.lead("event_type").over(shipment_window))
+            .withColumn("next_event_time", F.lead("event_timestamp").over(shipment_window))
         )
 
         # Calculate time since previous event
         df = df.withColumn(
             "time_since_prev_hours",
-            (F.unix_timestamp("event_timestamp") - F.unix_timestamp("prev_event_time")) / 3600
+            (F.unix_timestamp("event_timestamp") - F.unix_timestamp("prev_event_time")) / 3600,
         )
 
         return df
@@ -110,21 +98,28 @@ class JourneyReconstructor:
         df = df.withColumn(
             "journey_stage",
             F.when(
-                F.col("event_type").isin(["CREATED", "PICKUP_SCHEDULED", "PICKED_UP"]),
-                "FIRST_MILE"
-            ).when(
-                F.col("event_type").isin([
-                    "HUB_ARRIVED", "HUB_INSCAN", "HUB_SORTED",
-                    "HUB_OUTSCAN", "HUB_DEPARTED", "IN_TRANSIT"
-                ]),
-                "MID_MILE"
-            ).when(
-                F.col("event_type").isin([
-                    "OUT_FOR_DELIVERY", "DELIVERY_ATTEMPTED",
-                    "DELIVERED", "DELIVERY_FAILED"
-                ]),
-                "LAST_MILE"
-            ).otherwise("OTHER")
+                F.col("event_type").isin(["CREATED", "PICKUP_SCHEDULED", "PICKED_UP"]), "FIRST_MILE"
+            )
+            .when(
+                F.col("event_type").isin(
+                    [
+                        "HUB_ARRIVED",
+                        "HUB_INSCAN",
+                        "HUB_SORTED",
+                        "HUB_OUTSCAN",
+                        "HUB_DEPARTED",
+                        "IN_TRANSIT",
+                    ]
+                ),
+                "MID_MILE",
+            )
+            .when(
+                F.col("event_type").isin(
+                    ["OUT_FOR_DELIVERY", "DELIVERY_ATTEMPTED", "DELIVERED", "DELIVERY_FAILED"]
+                ),
+                "LAST_MILE",
+            )
+            .otherwise("OTHER"),
         )
 
         return df
@@ -132,39 +127,26 @@ class JourneyReconstructor:
     def _calculate_hub_dwell_times(self, df: DataFrame) -> DataFrame:
         """Calculate dwell time at each hub."""
         # Filter to hub events only
-        hub_events = df.filter(
-            F.col("event_type").like("HUB_%")
-        )
+        hub_events = df.filter(F.col("event_type").like("HUB_%"))
 
         # Window for hub processing
         hub_window = Window.partitionBy("shipment_id", "hub_id").orderBy("event_timestamp")
 
-        hub_events = hub_events.withColumn(
-            "hub_event_seq",
-            F.row_number().over(hub_window)
-        )
+        hub_events = hub_events.withColumn("hub_event_seq", F.row_number().over(hub_window))
 
         # Get hub arrival and departure times
-        hub_summary = hub_events.groupBy(
-            "shipment_id",
-            "hub_id",
-            "hub_name",
-            "hub_city"
-        ).agg(
+        hub_summary = hub_events.groupBy("shipment_id", "hub_id", "hub_name", "hub_city").agg(
             F.min("event_timestamp").alias("hub_arrival_time"),
             F.max("event_timestamp").alias("hub_departure_time"),
             F.count("*").alias("hub_event_count"),
-            F.collect_list("event_type").alias("hub_events")
+            F.collect_list("event_type").alias("hub_events"),
         )
 
         # Calculate dwell time
         hub_summary = hub_summary.withColumn(
             "hub_dwell_hours",
-            (F.unix_timestamp("hub_departure_time") - F.unix_timestamp("hub_arrival_time")) / 3600
-        ).withColumn(
-            "is_bottleneck",
-            F.col("hub_dwell_hours") > self.bottleneck_dwell_hours
-        )
+            (F.unix_timestamp("hub_departure_time") - F.unix_timestamp("hub_arrival_time")) / 3600,
+        ).withColumn("is_bottleneck", F.col("hub_dwell_hours") > self.bottleneck_dwell_hours)
 
         return hub_summary
 
@@ -180,7 +162,7 @@ class JourneyReconstructor:
             "is_cod",
             "cod_amount",
             "promised_delivery",
-            "route_hops"
+            "route_hops",
         ).agg(
             F.min("event_timestamp").alias("journey_start_time"),
             F.max("event_timestamp").alias("journey_end_time"),
@@ -200,15 +182,14 @@ class JourneyReconstructor:
 
     def _calculate_sla_status(self, journeys: DataFrame) -> DataFrame:
         """Calculate SLA status for each journey."""
-        journeys = journeys.withColumn(
-            "promised_delivery_ts",
-            F.to_timestamp("promised_delivery")
-        ).withColumn(
-            "journey_duration_hours",
-            (F.unix_timestamp("journey_end_time") - F.unix_timestamp("journey_start_time")) / 3600
-        ).withColumn(
-            "journey_duration_days",
-            F.col("journey_duration_hours") / 24
+        journeys = (
+            journeys.withColumn("promised_delivery_ts", F.to_timestamp("promised_delivery"))
+            .withColumn(
+                "journey_duration_hours",
+                (F.unix_timestamp("journey_end_time") - F.unix_timestamp("journey_start_time"))
+                / 3600,
+            )
+            .withColumn("journey_duration_days", F.col("journey_duration_hours") / 24)
         )
 
         # Determine SLA status
@@ -216,44 +197,42 @@ class JourneyReconstructor:
             "sla_status",
             F.when(
                 F.col("last_event") == "DELIVERED",
-                F.when(
-                    F.col("journey_end_time") <= F.col("promised_delivery_ts"),
-                    "MET"
-                ).otherwise("BREACHED")
-            ).when(
-                F.col("last_event").isin(["DELIVERY_FAILED", "RETURNED_TO_ORIGIN"]),
-                "FAILED"
-            ).otherwise("IN_PROGRESS")
+                F.when(F.col("journey_end_time") <= F.col("promised_delivery_ts"), "MET").otherwise(
+                    "BREACHED"
+                ),
+            )
+            .when(F.col("last_event").isin(["DELIVERY_FAILED", "RETURNED_TO_ORIGIN"]), "FAILED")
+            .otherwise("IN_PROGRESS"),
         ).withColumn(
             "sla_variance_hours",
             F.when(
                 F.col("last_event") == "DELIVERED",
-                (F.unix_timestamp("journey_end_time") - F.unix_timestamp("promised_delivery_ts")) / 3600
-            ).otherwise(None)
+                (F.unix_timestamp("journey_end_time") - F.unix_timestamp("promised_delivery_ts"))
+                / 3600,
+            ).otherwise(None),
         )
 
         return journeys
 
     def _classify_journeys(self, journeys: DataFrame) -> DataFrame:
         """Classify journeys by outcome and characteristics."""
-        journeys = journeys.withColumn(
-            "journey_outcome",
-            F.when(F.col("last_event") == "DELIVERED", "DELIVERED")
-            .when(F.col("last_event") == "DELIVERY_FAILED", "FAILED")
-            .when(F.col("last_event") == "RETURNED_TO_ORIGIN", "RETURNED")
-            .when(F.col("stuck_incidents") > 0, "STUCK")
-            .otherwise("IN_TRANSIT")
-        ).withColumn(
-            "had_delivery_issues",
-            F.col("delivery_attempts") > 1
-        ).withColumn(
-            "is_express",
-            F.col("route_hops") <= 2
-        ).withColumn(
-            "complexity",
-            F.when(F.col("hubs_visited") <= 2, "SIMPLE")
-            .when(F.col("hubs_visited") <= 4, "MODERATE")
-            .otherwise("COMPLEX")
+        journeys = (
+            journeys.withColumn(
+                "journey_outcome",
+                F.when(F.col("last_event") == "DELIVERED", "DELIVERED")
+                .when(F.col("last_event") == "DELIVERY_FAILED", "FAILED")
+                .when(F.col("last_event") == "RETURNED_TO_ORIGIN", "RETURNED")
+                .when(F.col("stuck_incidents") > 0, "STUCK")
+                .otherwise("IN_TRANSIT"),
+            )
+            .withColumn("had_delivery_issues", F.col("delivery_attempts") > 1)
+            .withColumn("is_express", F.col("route_hops") <= 2)
+            .withColumn(
+                "complexity",
+                F.when(F.col("hubs_visited") <= 2, "SIMPLE")
+                .when(F.col("hubs_visited") <= 4, "MODERATE")
+                .otherwise("COMPLEX"),
+            )
         )
 
         return journeys
@@ -273,10 +252,8 @@ class JourneyReconstructor:
 
         # Read Bronze data
         events = self._read_bronze_events(date)
-        event_count = events.count()
-        logger.info(f"Read {event_count} shipment events")
 
-        if event_count == 0:
+        if events.limit(1).count() == 0:
             logger.warning("No events found, skipping reconstruction")
             return None, None
 
@@ -300,12 +277,9 @@ class JourneyReconstructor:
 
         # Add metadata
         final_journeys = classified.withColumn(
-            "reconstructed_at",
-            F.current_timestamp()
-        ).withColumn(
-            "journey_date",
-            F.to_date("journey_start_time")
-        )
+            "reconstructed_at", F.current_timestamp()
+        ).withColumn("journey_date", F.to_date("journey_start_time"))
+        final_journeys.persist(StorageLevel.MEMORY_AND_DISK)
 
         journey_count = final_journeys.count()
         logger.info(f"Reconstructed {journey_count} journeys")
@@ -314,8 +288,7 @@ class JourneyReconstructor:
             # Write journeys
             journey_path = f"{self.silver_path}/shipment/journeys"
             (
-                final_journeys.write
-                .format("delta")
+                final_journeys.write.format("delta")
                 .mode("append")
                 .partitionBy("journey_date")
                 .save(journey_path)
@@ -324,13 +297,10 @@ class JourneyReconstructor:
 
             # Write hub dwell times
             hub_path = f"{self.silver_path}/shipment/hub_dwell"
-            (
-                hub_dwell.write
-                .format("delta")
-                .mode("append")
-                .save(hub_path)
-            )
+            (hub_dwell.write.format("delta").mode("append").save(hub_path))
             logger.info(f"Wrote hub dwell times to {hub_path}")
+
+        final_journeys.unpersist()
 
         return final_journeys, hub_dwell
 
@@ -342,18 +312,26 @@ class JourneyReconstructor:
         sequenced = self._sequence_events(events)
 
         # Find shipments with long gaps that aren't delivered
-        stuck = sequenced.filter(
-            (F.col("time_since_prev_hours") > threshold) &
-            (~F.col("event_type").isin(["DELIVERED", "DELIVERY_FAILED", "RETURNED_TO_ORIGIN"]))
-        ).select(
-            "shipment_id",
-            "awb_number",
-            "hub_id",
-            "hub_name",
-            "event_type",
-            "event_timestamp",
-            "time_since_prev_hours"
-        ).orderBy(F.desc("time_since_prev_hours"))
+        stuck = (
+            sequenced.filter(
+                (F.col("time_since_prev_hours") > threshold)
+                & (
+                    ~F.col("event_type").isin(
+                        ["DELIVERED", "DELIVERY_FAILED", "RETURNED_TO_ORIGIN"]
+                    )
+                )
+            )
+            .select(
+                "shipment_id",
+                "awb_number",
+                "hub_id",
+                "hub_name",
+                "event_type",
+                "event_timestamp",
+                "time_since_prev_hours",
+            )
+            .orderBy(F.desc("time_since_prev_hours"))
+        )
 
         return stuck
 
@@ -374,10 +352,7 @@ def main():
         stuck_threshold_hours=args.stuck_threshold,
     )
 
-    journeys, hub_dwell = reconstructor.reconstruct(
-        date=args.date,
-        write_output=not args.dry_run
-    )
+    journeys, hub_dwell = reconstructor.reconstruct(date=args.date, write_output=not args.dry_run)
 
     if journeys:
         print("\n=== Journey Summary ===")
@@ -388,8 +363,12 @@ def main():
 
         print("\n=== Sample Journeys ===")
         journeys.select(
-            "shipment_id", "origin_hub", "destination_hub",
-            "journey_duration_hours", "sla_status", "journey_outcome"
+            "shipment_id",
+            "origin_hub",
+            "destination_hub",
+            "journey_duration_hours",
+            "sla_status",
+            "journey_outcome",
         ).show(10)
 
 

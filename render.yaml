@@ -1,0 +1,12 @@
+# Render Blueprint - Free tier deployment
+# Deploy: https://render.com/deploy
+services:
+  - type: web
+    name: logistics-dashboard
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: STREAMLIT_SERVER_PORT
+        value: 8501

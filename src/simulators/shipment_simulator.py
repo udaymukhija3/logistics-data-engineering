@@ -11,16 +11,24 @@ Simulates:
 import random
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+from src.domain.constants import (
+    DELIVERY_FAILURE_REASONS,
+    TOPIC_SHIPMENT_EVENTS,
+)
+from src.utils.validation import require_positive_int, require_positive_number
 
 from .base import BaseSimulator, logger
 
 
 class ShipmentState(Enum):
     """Shipment lifecycle states."""
+
     CREATED = "CREATED"
     PICKUP_SCHEDULED = "PICKUP_SCHEDULED"
     PICKED_UP = "PICKED_UP"
@@ -135,6 +143,7 @@ HUB_NETWORK = {
 @dataclass
 class Shipment:
     """Represents a single shipment."""
+
     shipment_id: str
     awb_number: str  # Air Waybill number
     seller_id: str
@@ -172,12 +181,11 @@ class ShipmentSimulator(BaseSimulator):
         self,
         shipments_per_minute: float = 10,
         kafka_bootstrap_servers: str = "localhost:9092",
-        **kwargs
+        **kwargs,
     ):
+        require_positive_number(shipments_per_minute, "shipments_per_minute")
         super().__init__(
-            kafka_bootstrap_servers=kafka_bootstrap_servers,
-            topic="shipment_events",
-            **kwargs
+            kafka_bootstrap_servers=kafka_bootstrap_servers, topic=TOPIC_SHIPMENT_EVENTS, **kwargs
         )
         self.shipments_per_minute = shipments_per_minute
         self.active_shipments: Dict[str, Shipment] = {}
@@ -196,10 +204,10 @@ class ShipmentSimulator(BaseSimulator):
             return [origin]
 
         visited = {origin}
-        queue = [[origin]]
+        queue = deque([[origin]])
 
         while queue:
-            path = queue.pop(0)
+            path = queue.popleft()
             current = path[-1]
 
             for neighbor in self.hub_network[current]["connections"]:
@@ -333,13 +341,13 @@ class ShipmentSimulator(BaseSimulator):
         # Determine failure reason if applicable
         failure_reason = None
         if shipment.state == ShipmentState.DELIVERY_ATTEMPTED:
-            failure_reason = random.choice([
-                "CUSTOMER_NOT_AVAILABLE",
-                "WRONG_ADDRESS",
-                "ACCESS_RESTRICTED",
-                "CUSTOMER_REFUSED",
-                "PAYMENT_ISSUE",
-            ])
+            failure_reason = random.choice(
+                [
+                    reason
+                    for reason in DELIVERY_FAILURE_REASONS
+                    if reason not in {"DAMAGED_PACKAGE", "OTHER"}
+                ]
+            )
 
         event = {
             "event_id": f"EVT-{uuid.uuid4().hex[:12].upper()}",
@@ -417,6 +425,11 @@ class ShipmentSimulator(BaseSimulator):
             duration_seconds: How long to run (None = forever)
             max_events: Max events to generate (None = unlimited)
         """
+        if duration_seconds is not None:
+            require_positive_int(duration_seconds, "duration_seconds")
+        if max_events is not None:
+            require_positive_int(max_events, "max_events")
+
         if not self.connect():
             logger.error("Failed to connect to Kafka, running in dry-run mode")
 
@@ -432,27 +445,37 @@ class ShipmentSimulator(BaseSimulator):
 
                 # Create new shipments at configured rate
                 if now - last_shipment_time >= shipment_interval:
-                    shipment = self._create_shipment()
-                    self.active_shipments[shipment.shipment_id] = shipment
+                    try:
+                        shipment = self._create_shipment()
+                        self.active_shipments[shipment.shipment_id] = shipment
 
-                    event = self.generate_event(shipment)
-                    if self.producer:
-                        self.send(event, key=shipment.shipment_id)
+                        event = self.generate_event(shipment)
+                        if self.producer:
+                            self.send(event, key=shipment.shipment_id)
 
-                    last_shipment_time = now
-                    logger.debug(f"Created shipment {shipment.shipment_id}: {shipment.origin_hub} -> {shipment.destination_hub}")
+                        last_shipment_time = now
+                        logger.debug(
+                            f"Created shipment {shipment.shipment_id}: {shipment.origin_hub} -> {shipment.destination_hub}"
+                        )
+                    except Exception:
+                        logger.exception("Failed to create/process a new shipment")
 
                 # Process existing shipments
                 completed = []
-                for shipment_id, shipment in self.active_shipments.items():
-                    event = self._process_shipment(shipment)
-                    if event:
-                        if self.producer:
-                            self.send(event, key=shipment_id)
+                for shipment_id, shipment in list(self.active_shipments.items()):
+                    try:
+                        event = self._process_shipment(shipment)
+                        if event:
+                            if self.producer:
+                                self.send(event, key=shipment_id)
 
-                        if self._is_shipment_complete(shipment):
-                            completed.append(shipment_id)
-                            logger.debug(f"Shipment {shipment_id} completed: {shipment.state.value}")
+                            if self._is_shipment_complete(shipment):
+                                completed.append(shipment_id)
+                                logger.debug(
+                                    f"Shipment {shipment_id} completed: {shipment.state.value}"
+                                )
+                    except Exception:
+                        logger.exception("Failed to process shipment %s", shipment_id)
 
                 # Remove completed shipments
                 for shipment_id in completed:
@@ -462,7 +485,9 @@ class ShipmentSimulator(BaseSimulator):
                 # Log stats periodically
                 if self.message_count % 100 == 0 and self.message_count > 0:
                     self._log_stats()
-                    logger.info(f"Active shipments: {len(self.active_shipments)}, Completed: {len(self.completed_shipments)}")
+                    logger.info(
+                        f"Active shipments: {len(self.active_shipments)}, Completed: {len(self.completed_shipments)}"
+                    )
 
                 # Check termination conditions
                 if duration_seconds and (now - self.start_time) >= duration_seconds:

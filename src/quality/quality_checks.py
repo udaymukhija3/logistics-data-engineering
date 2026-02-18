@@ -8,24 +8,28 @@ both Great Expectations-style checks and custom validation logic.
 import argparse
 import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
+
+from src.domain.constants import DELIVERY_EVENT_TYPES, INDIA_BOUNDS, SHIPMENT_EVENT_TYPES
+from src.utils.validation import require_non_negative_int, require_ratio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Try to import PySpark - fall back to DuckDB if not available
 try:
-    from pyspark.sql import SparkSession, DataFrame
+    from pyspark.sql import DataFrame, SparkSession
     from pyspark.sql import functions as F
+
     SPARK_AVAILABLE = True
 except ImportError:
     SPARK_AVAILABLE = False
 
 try:
     import duckdb
+
     DUCKDB_AVAILABLE = True
 except ImportError:
     DUCKDB_AVAILABLE = False
@@ -48,6 +52,8 @@ class DataQualityChecker:
         self.output_path = Path(output_path)
         self.output_path.mkdir(parents=True, exist_ok=True)
         self.use_spark = use_spark and SPARK_AVAILABLE
+        self._duckdb_cache: Dict[str, Any] = {}
+        self._spark_cache: Dict[str, "DataFrame"] = {}
 
         if self.use_spark:
             self.spark = self._create_spark_session()
@@ -59,31 +65,93 @@ class DataQualityChecker:
     def _create_spark_session(self) -> "SparkSession":
         """Create Spark session for data quality checks."""
         return (
-            SparkSession.builder
-            .appName("DataQualityChecks")
+            SparkSession.builder.appName("DataQualityChecks")
             .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-            .config("spark.sql.catalog.spark_catalog",
-                    "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+            .config(
+                "spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+            )
             .getOrCreate()
         )
 
     def _read_parquet_duckdb(self, path: str) -> Any:
         """Read Parquet files with DuckDB."""
-        return self.conn.execute(f"SELECT * FROM read_parquet('{path}/*.parquet')").fetchdf()
+        data_dir = Path(path)
+        cache_key = str(data_dir.resolve())
+        if cache_key in self._duckdb_cache:
+            return self._duckdb_cache[cache_key]
+
+        if not data_dir.exists():
+            raise FileNotFoundError(f"Path not found: {path}")
+        if not list(data_dir.rglob("*.parquet")):
+            raise FileNotFoundError(f"No parquet files found under: {path}")
+
+        parquet_glob = f"{data_dir.as_posix()}/**/*.parquet"
+        try:
+            df = self.conn.execute("SELECT * FROM read_parquet(?)", [parquet_glob]).fetchdf()
+        except Exception:
+            # Keep a safe fallback if parameter binding is unavailable in older DuckDB builds.
+            escaped_glob = parquet_glob.replace("'", "''")
+            df = self.conn.execute(f"SELECT * FROM read_parquet('{escaped_glob}')").fetchdf()
+
+        self._duckdb_cache[cache_key] = df
+        return df
 
     def _read_delta_spark(self, path: str) -> "DataFrame":
         """Read Delta table with Spark."""
-        return self.spark.read.format("delta").load(path)
+        if path in self._spark_cache:
+            return self._spark_cache[path]
+
+        df = self.spark.read.format("delta").load(path).cache()
+        self._spark_cache[path] = df
+        return df
+
+    def _error_result(
+        self,
+        check: str,
+        table_name: str,
+        error: Exception,
+        column: str = None,
+    ) -> Dict[str, Any]:
+        """Build a consistent error payload for failed checks."""
+        payload: Dict[str, Any] = {
+            "check": check,
+            "table": table_name,
+            "success": False,
+            "error": str(error),
+        }
+        if column:
+            payload["column"] = column
+        return payload
+
+    def close(self):
+        """Close backend resources if initialized."""
+        for cached_df in self._spark_cache.values():
+            try:
+                cached_df.unpersist()
+            except Exception:
+                logger.exception("Failed to unpersist Spark cached DataFrame")
+        self._spark_cache.clear()
+        self._duckdb_cache.clear()
+
+        if hasattr(self, "conn"):
+            try:
+                self.conn.close()
+            except Exception:
+                logger.exception("Failed to close DuckDB connection")
+
+        if hasattr(self, "spark"):
+            try:
+                self.spark.stop()
+            except Exception:
+                logger.exception("Failed to stop Spark session")
 
     def check_not_null(
-        self,
-        table_name: str,
-        column: str,
-        data_path: str,
-        threshold: float = 1.0
+        self, table_name: str, column: str, data_path: str, threshold: float = 1.0
     ) -> Dict[str, Any]:
         """Check that a column has no null values (or within threshold)."""
         try:
+            require_ratio(threshold, "threshold")
+
             if self.use_spark:
                 df = self._read_delta_spark(data_path)
                 total = df.count()
@@ -100,7 +168,7 @@ class DataQualityChecker:
                     "column": column,
                     "success": True,
                     "message": "No data to check",
-                    "details": {"total_rows": 0}
+                    "details": {"total_rows": 0},
                 }
 
             ratio = non_null / total
@@ -116,24 +184,14 @@ class DataQualityChecker:
                 "details": {
                     "total_rows": total,
                     "non_null_rows": int(non_null),
-                    "null_rows": int(total - non_null)
-                }
+                    "null_rows": int(total - non_null),
+                },
             }
         except Exception as e:
-            return {
-                "check": "not_null",
-                "table": table_name,
-                "column": column,
-                "success": False,
-                "error": str(e)
-            }
+            logger.exception("check_not_null failed for %s.%s", table_name, column)
+            return self._error_result("not_null", table_name, e, column=column)
 
-    def check_unique(
-        self,
-        table_name: str,
-        column: str,
-        data_path: str
-    ) -> Dict[str, Any]:
+    def check_unique(self, table_name: str, column: str, data_path: str) -> Dict[str, Any]:
         """Check that a column has unique values."""
         try:
             if self.use_spark:
@@ -155,17 +213,12 @@ class DataQualityChecker:
                 "details": {
                     "total_rows": total,
                     "distinct_values": int(distinct),
-                    "duplicate_count": int(total - distinct)
-                }
+                    "duplicate_count": int(total - distinct),
+                },
             }
         except Exception as e:
-            return {
-                "check": "unique",
-                "table": table_name,
-                "column": column,
-                "success": False,
-                "error": str(e)
-            }
+            logger.exception("check_unique failed for %s.%s", table_name, column)
+            return self._error_result("unique", table_name, e, column=column)
 
     def check_value_range(
         self,
@@ -174,10 +227,14 @@ class DataQualityChecker:
         data_path: str,
         min_value: float = None,
         max_value: float = None,
-        threshold: float = 0.98
+        threshold: float = 0.98,
     ) -> Dict[str, Any]:
         """Check that values are within expected range."""
         try:
+            require_ratio(threshold, "threshold")
+            if min_value is not None and max_value is not None and min_value > max_value:
+                raise ValueError("min_value cannot be greater than max_value")
+
             if self.use_spark:
                 df = self._read_delta_spark(data_path)
                 total = df.filter(F.col(column).isNotNull()).count()
@@ -190,6 +247,7 @@ class DataQualityChecker:
 
                 if conditions:
                     from functools import reduce
+
                     combined = reduce(lambda a, b: a & b, conditions)
                     in_range = df.filter(combined).count()
                 else:
@@ -198,7 +256,7 @@ class DataQualityChecker:
                 stats = df.select(
                     F.min(column).alias("min"),
                     F.max(column).alias("max"),
-                    F.avg(column).alias("avg")
+                    F.avg(column).alias("avg"),
                 ).first()
                 actual_min = stats["min"]
                 actual_max = stats["max"]
@@ -226,7 +284,7 @@ class DataQualityChecker:
                     "table": table_name,
                     "column": column,
                     "success": True,
-                    "message": "No data to check"
+                    "message": "No data to check",
                 }
 
             ratio = in_range / total
@@ -243,19 +301,14 @@ class DataQualityChecker:
                 "details": {
                     "total_rows": total,
                     "in_range_rows": int(in_range),
-                    "actual_min": float(actual_min) if actual_min else None,
-                    "actual_max": float(actual_max) if actual_max else None,
-                    "actual_avg": float(actual_avg) if actual_avg else None
-                }
+                    "actual_min": float(actual_min) if actual_min is not None else None,
+                    "actual_max": float(actual_max) if actual_max is not None else None,
+                    "actual_avg": float(actual_avg) if actual_avg is not None else None,
+                },
             }
         except Exception as e:
-            return {
-                "check": "value_range",
-                "table": table_name,
-                "column": column,
-                "success": False,
-                "error": str(e)
-            }
+            logger.exception("check_value_range failed for %s.%s", table_name, column)
+            return self._error_result("value_range", table_name, e, column=column)
 
     def check_accepted_values(
         self,
@@ -263,10 +316,14 @@ class DataQualityChecker:
         column: str,
         data_path: str,
         accepted_values: List[str],
-        threshold: float = 1.0
+        threshold: float = 1.0,
     ) -> Dict[str, Any]:
         """Check that values are in accepted set."""
         try:
+            require_ratio(threshold, "threshold")
+            if not accepted_values:
+                raise ValueError("accepted_values cannot be empty")
+
             if self.use_spark:
                 df = self._read_delta_spark(data_path)
                 total = df.filter(F.col(column).isNotNull()).count()
@@ -293,7 +350,7 @@ class DataQualityChecker:
                     "table": table_name,
                     "column": column,
                     "success": True,
-                    "message": "No data to check"
+                    "message": "No data to check",
                 }
 
             ratio = valid / total
@@ -310,26 +367,20 @@ class DataQualityChecker:
                 "details": {
                     "total_rows": total,
                     "valid_rows": int(valid),
-                    "invalid_values_sample": invalid_list if not success else []
-                }
+                    "invalid_values_sample": invalid_list if not success else [],
+                },
             }
         except Exception as e:
-            return {
-                "check": "accepted_values",
-                "table": table_name,
-                "column": column,
-                "success": False,
-                "error": str(e)
-            }
+            logger.exception("check_accepted_values failed for %s.%s", table_name, column)
+            return self._error_result("accepted_values", table_name, e, column=column)
 
     def check_row_count(
-        self,
-        table_name: str,
-        data_path: str,
-        min_count: int = 1
+        self, table_name: str, data_path: str, min_count: int = 1
     ) -> Dict[str, Any]:
         """Check that table has minimum number of rows."""
         try:
+            require_non_negative_int(min_count, "min_count")
+
             if self.use_spark:
                 df = self._read_delta_spark(data_path)
                 count = df.count()
@@ -344,15 +395,11 @@ class DataQualityChecker:
                 "table": table_name,
                 "success": success,
                 "expected_min": min_count,
-                "actual_count": count
+                "actual_count": count,
             }
         except Exception as e:
-            return {
-                "check": "row_count",
-                "table": table_name,
-                "success": False,
-                "error": str(e)
-            }
+            logger.exception("check_row_count failed for %s", table_name)
+            return self._error_result("row_count", table_name, e)
 
 
 def run_bronze_checks(checker: DataQualityChecker) -> List[Dict[str, Any]]:
@@ -368,25 +415,45 @@ def run_bronze_checks(checker: DataQualityChecker) -> List[Dict[str, Any]]:
         results.append(checker.check_not_null("vehicle_positions", "vehicle_id", vp_path))
         results.append(checker.check_not_null("vehicle_positions", "latitude", vp_path))
         results.append(checker.check_not_null("vehicle_positions", "longitude", vp_path))
-        results.append(checker.check_value_range(
-            "vehicle_positions", "latitude", vp_path,
-            min_value=8.0, max_value=37.0, threshold=0.98
-        ))
-        results.append(checker.check_value_range(
-            "vehicle_positions", "longitude", vp_path,
-            min_value=68.0, max_value=97.5, threshold=0.98
-        ))
-        results.append(checker.check_value_range(
-            "vehicle_positions", "speed_kmh", vp_path,
-            min_value=0, max_value=200, threshold=0.99
-        ))
+        results.append(
+            checker.check_value_range(
+                "vehicle_positions",
+                "latitude",
+                vp_path,
+                min_value=INDIA_BOUNDS["lat_min"],
+                max_value=INDIA_BOUNDS["lat_max"],
+                threshold=0.98,
+            )
+        )
+        results.append(
+            checker.check_value_range(
+                "vehicle_positions",
+                "longitude",
+                vp_path,
+                min_value=INDIA_BOUNDS["lng_min"],
+                max_value=INDIA_BOUNDS["lng_max"],
+                threshold=0.98,
+            )
+        )
+        results.append(
+            checker.check_value_range(
+                "vehicle_positions",
+                "speed_kmh",
+                vp_path,
+                min_value=0,
+                max_value=200,
+                threshold=0.99,
+            )
+        )
     else:
-        results.append({
-            "check": "table_exists",
-            "table": "vehicle_positions",
-            "success": False,
-            "error": f"Path not found: {vp_path}"
-        })
+        results.append(
+            {
+                "check": "table_exists",
+                "table": "vehicle_positions",
+                "success": False,
+                "error": f"Path not found: {vp_path}",
+            }
+        )
 
     # Shipment Events checks
     se_path = str(bronze_path / "shipment_events")
@@ -395,44 +462,58 @@ def run_bronze_checks(checker: DataQualityChecker) -> List[Dict[str, Any]]:
         results.append(checker.check_not_null("shipment_events", "event_id", se_path))
         results.append(checker.check_not_null("shipment_events", "shipment_id", se_path))
         results.append(checker.check_not_null("shipment_events", "event_type", se_path))
-        results.append(checker.check_accepted_values(
-            "shipment_events", "event_type", se_path,
-            accepted_values=[
-                "CREATED", "PICKUP_SCHEDULED", "PICKED_UP",
-                "HUB_ARRIVED", "HUB_INSCAN", "HUB_SORTED",
-                "HUB_OUTSCAN", "HUB_DEPARTED", "IN_TRANSIT",
-                "OUT_FOR_DELIVERY", "DELIVERY_ATTEMPTED", "DELIVERED",
-                "DELIVERY_FAILED", "RETURNED_TO_ORIGIN", "LOST", "DAMAGED"
-            ]
-        ))
+        results.append(
+            checker.check_accepted_values(
+                "shipment_events",
+                "event_type",
+                se_path,
+                accepted_values=list(SHIPMENT_EVENT_TYPES),
+            )
+        )
     else:
-        results.append({
-            "check": "table_exists",
-            "table": "shipment_events",
-            "success": False,
-            "error": f"Path not found: {se_path}"
-        })
+        results.append(
+            {
+                "check": "table_exists",
+                "table": "shipment_events",
+                "success": False,
+                "error": f"Path not found: {se_path}",
+            }
+        )
 
     # Agent Positions checks
     ap_path = str(bronze_path / "agent_positions")
     if Path(ap_path).exists():
         results.append(checker.check_row_count("agent_positions", ap_path, min_count=1))
         results.append(checker.check_not_null("agent_positions", "agent_id", ap_path))
-        results.append(checker.check_value_range(
-            "agent_positions", "latitude", ap_path,
-            min_value=8.0, max_value=37.0, threshold=0.98
-        ))
-        results.append(checker.check_value_range(
-            "agent_positions", "longitude", ap_path,
-            min_value=68.0, max_value=97.5, threshold=0.98
-        ))
+        results.append(
+            checker.check_value_range(
+                "agent_positions",
+                "latitude",
+                ap_path,
+                min_value=INDIA_BOUNDS["lat_min"],
+                max_value=INDIA_BOUNDS["lat_max"],
+                threshold=0.98,
+            )
+        )
+        results.append(
+            checker.check_value_range(
+                "agent_positions",
+                "longitude",
+                ap_path,
+                min_value=INDIA_BOUNDS["lng_min"],
+                max_value=INDIA_BOUNDS["lng_max"],
+                threshold=0.98,
+            )
+        )
     else:
-        results.append({
-            "check": "table_exists",
-            "table": "agent_positions",
-            "success": False,
-            "error": f"Path not found: {ap_path}"
-        })
+        results.append(
+            {
+                "check": "table_exists",
+                "table": "agent_positions",
+                "success": False,
+                "error": f"Path not found: {ap_path}",
+            }
+        )
 
     # Delivery Events checks
     de_path = str(bronze_path / "delivery_events")
@@ -440,21 +521,33 @@ def run_bronze_checks(checker: DataQualityChecker) -> List[Dict[str, Any]]:
         results.append(checker.check_row_count("delivery_events", de_path, min_count=1))
         results.append(checker.check_not_null("delivery_events", "event_id", de_path))
         results.append(checker.check_not_null("delivery_events", "agent_id", de_path))
-        results.append(checker.check_accepted_values(
-            "delivery_events", "event_type", de_path,
-            accepted_values=["DELIVERED", "DELIVERY_ATTEMPTED", "DELIVERY_FAILED"]
-        ))
-        results.append(checker.check_value_range(
-            "delivery_events", "customer_rating", de_path,
-            min_value=1, max_value=5, threshold=1.0
-        ))
+        results.append(
+            checker.check_accepted_values(
+                "delivery_events",
+                "event_type",
+                de_path,
+                accepted_values=list(DELIVERY_EVENT_TYPES),
+            )
+        )
+        results.append(
+            checker.check_value_range(
+                "delivery_events",
+                "customer_rating",
+                de_path,
+                min_value=1,
+                max_value=5,
+                threshold=1.0,
+            )
+        )
     else:
-        results.append({
-            "check": "table_exists",
-            "table": "delivery_events",
-            "success": False,
-            "error": f"Path not found: {de_path}"
-        })
+        results.append(
+            {
+                "check": "table_exists",
+                "table": "delivery_events",
+                "success": False,
+                "error": f"Path not found: {de_path}",
+            }
+        )
 
     return results
 
@@ -470,17 +563,25 @@ def run_silver_checks(checker: DataQualityChecker) -> List[Dict[str, Any]]:
         results.append(checker.check_row_count("trips", trips_path, min_count=1))
         results.append(checker.check_not_null("trips", "trip_id", trips_path))
         results.append(checker.check_unique("trips", "trip_id", trips_path))
-        results.append(checker.check_value_range(
-            "trips", "total_distance_km", trips_path,
-            min_value=0, max_value=2000, threshold=0.99
-        ))
+        results.append(
+            checker.check_value_range(
+                "trips",
+                "total_distance_km",
+                trips_path,
+                min_value=0,
+                max_value=2000,
+                threshold=0.99,
+            )
+        )
     else:
-        results.append({
-            "check": "table_exists",
-            "table": "trips",
-            "success": False,
-            "error": f"Path not found: {trips_path}"
-        })
+        results.append(
+            {
+                "check": "table_exists",
+                "table": "trips",
+                "success": False,
+                "error": f"Path not found: {trips_path}",
+            }
+        )
 
     # Journeys checks
     journeys_path = str(silver_path / "shipment" / "journeys")
@@ -489,12 +590,14 @@ def run_silver_checks(checker: DataQualityChecker) -> List[Dict[str, Any]]:
         results.append(checker.check_not_null("journeys", "shipment_id", journeys_path))
         results.append(checker.check_unique("journeys", "shipment_id", journeys_path))
     else:
-        results.append({
-            "check": "table_exists",
-            "table": "journeys",
-            "success": False,
-            "error": f"Path not found: {journeys_path}"
-        })
+        results.append(
+            {
+                "check": "table_exists",
+                "table": "journeys",
+                "success": False,
+                "error": f"Path not found: {journeys_path}",
+            }
+        )
 
     # Agent Shifts checks
     shifts_path = str(silver_path / "delivery" / "agent_shifts")
@@ -502,12 +605,14 @@ def run_silver_checks(checker: DataQualityChecker) -> List[Dict[str, Any]]:
         results.append(checker.check_row_count("agent_shifts", shifts_path, min_count=1))
         results.append(checker.check_not_null("agent_shifts", "agent_id", shifts_path))
     else:
-        results.append({
-            "check": "table_exists",
-            "table": "agent_shifts",
-            "success": False,
-            "error": f"Path not found: {shifts_path}"
-        })
+        results.append(
+            {
+                "check": "table_exists",
+                "table": "agent_shifts",
+                "success": False,
+                "error": f"Path not found: {shifts_path}",
+            }
+        )
 
     return results
 
@@ -516,7 +621,7 @@ def run_quality_checks(
     layer: str = "bronze",
     data_path: str = "data",
     output_path: str = "data/quality_reports",
-    use_spark: bool = False
+    use_spark: bool = False,
 ) -> Tuple[bool, Dict[str, Any]]:
     """
     Run data quality checks for specified layer.
@@ -528,18 +633,18 @@ def run_quality_checks(
     logger.info(f"Running Data Quality Checks - Layer: {layer.upper()}")
     logger.info(f"=" * 60)
 
-    checker = DataQualityChecker(
-        data_path=data_path,
-        output_path=output_path,
-        use_spark=use_spark
-    )
-
-    if layer == "bronze":
-        results = run_bronze_checks(checker)
-    elif layer == "silver":
-        results = run_silver_checks(checker)
-    else:
-        results = run_bronze_checks(checker) + run_silver_checks(checker)
+    checker = DataQualityChecker(data_path=data_path, output_path=output_path, use_spark=use_spark)
+    try:
+        if layer == "bronze":
+            results = run_bronze_checks(checker)
+        elif layer == "silver":
+            results = run_silver_checks(checker)
+        elif layer == "all":
+            results = run_bronze_checks(checker) + run_silver_checks(checker)
+        else:
+            raise ValueError("layer must be one of: bronze, silver, all")
+    finally:
+        checker.close()
 
     # Calculate summary
     total_checks = len(results)
@@ -556,9 +661,9 @@ def run_quality_checks(
             "total_checks": total_checks,
             "passed": passed_checks,
             "failed": failed_checks,
-            "pass_rate": round(passed_checks / total_checks * 100, 2) if total_checks > 0 else 0
+            "pass_rate": round(passed_checks / total_checks * 100, 2) if total_checks > 0 else 0,
         },
-        "checks": results
+        "checks": results,
     }
 
     # Log summary
@@ -578,14 +683,18 @@ def run_quality_checks(
         logger.warning("\nFailed Checks:")
         for check in results:
             if not check.get("success", False):
-                logger.warning(f"  - {check.get('table', 'unknown')}.{check.get('column', 'N/A')}: "
-                             f"{check.get('check', 'unknown')} - {check.get('error', 'Check failed')}")
+                logger.warning(
+                    f"  - {check.get('table', 'unknown')}.{check.get('column', 'N/A')}: "
+                    f"{check.get('check', 'unknown')} - {check.get('error', 'Check failed')}"
+                )
 
     # Save report
-    report_path = Path(output_path) / f"quality_{layer}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    report_path = (
+        Path(output_path) / f"quality_{layer}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    )
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(report_path, 'w') as f:
+    with open(report_path, "w") as f:
         json.dump(report, f, indent=2, default=str)
 
     logger.info(f"\nReport saved to: {report_path}")
@@ -600,25 +709,13 @@ def main():
         type=str,
         default="bronze",
         choices=["bronze", "silver", "all"],
-        help="Data layer to check"
+        help="Data layer to check",
     )
+    parser.add_argument("--data-path", type=str, default="data", help="Path to data directory")
     parser.add_argument(
-        "--data-path",
-        type=str,
-        default="data",
-        help="Path to data directory"
+        "--output-path", type=str, default="data/quality_reports", help="Path for quality reports"
     )
-    parser.add_argument(
-        "--output-path",
-        type=str,
-        default="data/quality_reports",
-        help="Path for quality reports"
-    )
-    parser.add_argument(
-        "--use-spark",
-        action="store_true",
-        help="Use Spark instead of DuckDB"
-    )
+    parser.add_argument("--use-spark", action="store_true", help="Use Spark instead of DuckDB")
 
     args = parser.parse_args()
 
@@ -626,7 +723,7 @@ def main():
         layer=args.layer,
         data_path=args.data_path,
         output_path=args.output_path,
-        use_spark=args.use_spark
+        use_spark=args.use_spark,
     )
 
     if not success:

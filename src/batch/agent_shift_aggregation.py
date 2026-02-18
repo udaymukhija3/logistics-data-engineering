@@ -11,13 +11,12 @@ This job:
 
 import argparse
 import logging
-import math
-from datetime import datetime, timedelta
-from typing import Optional
 
-from pyspark.sql import SparkSession, DataFrame, Window
+from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import DoubleType
+from pyspark.storagelevel import StorageLevel
+
+from src.utils.spark_geo import haversine_distance_km_expr
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,10 +50,11 @@ class AgentShiftAggregator:
     def _create_spark_session(self) -> SparkSession:
         """Create Spark session with Delta Lake support."""
         return (
-            SparkSession.builder
-            .appName("AgentShiftAggregation")
+            SparkSession.builder.appName("AgentShiftAggregation")
             .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+            .config(
+                "spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+            )
             .config("spark.sql.adaptive.enabled", "true")
             .getOrCreate()
         )
@@ -82,57 +82,33 @@ class AgentShiftAggregator:
     def _calculate_distance_traveled(self, positions: DataFrame) -> DataFrame:
         """Calculate total distance traveled by each agent per day."""
 
-        @F.udf(DoubleType())
-        def haversine(lat1, lng1, lat2, lng2):
-            if any(v is None for v in [lat1, lng1, lat2, lng2]):
-                return 0.0
-
-            R = 6371  # Earth's radius in km
-            lat1_rad, lat2_rad = math.radians(lat1), math.radians(lat2)
-            delta_lat = math.radians(lat2 - lat1)
-            delta_lng = math.radians(lng2 - lng1)
-
-            a = (math.sin(delta_lat/2)**2 +
-                 math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lng/2)**2)
-            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-            return R * c
-
         # Window for ordering positions
         agent_window = Window.partitionBy("agent_id", "event_date").orderBy("event_timestamp")
 
-        positions = positions.withColumn(
-            "prev_lat",
-            F.lag("latitude").over(agent_window)
-        ).withColumn(
-            "prev_lng",
-            F.lag("longitude").over(agent_window)
-        ).withColumn(
-            "segment_distance_km",
-            haversine(
-                F.col("prev_lat"), F.col("prev_lng"),
-                F.col("latitude"), F.col("longitude")
-            )
+        segment_distance = F.coalesce(
+            haversine_distance_km_expr(
+                F.col("prev_lat"), F.col("prev_lng"), F.col("latitude"), F.col("longitude")
+            ),
+            F.lit(0.0),
+        )
+
+        positions = (
+            positions.withColumn("prev_lat", F.lag("latitude").over(agent_window))
+            .withColumn("prev_lng", F.lag("longitude").over(agent_window))
+            .withColumn("segment_distance_km", segment_distance)
         )
 
         # Aggregate distance per agent per day
-        distance_agg = positions.groupBy(
-            "agent_id",
-            "event_date"
-        ).agg(
+        distance_agg = positions.groupBy("agent_id", "event_date").agg(
             F.sum("segment_distance_km").alias("total_distance_km"),
-            F.count("*").alias("position_count")
+            F.count("*").alias("position_count"),
         )
 
         return distance_agg
 
     def _aggregate_shift_metrics(self, positions: DataFrame) -> DataFrame:
         """Aggregate basic shift metrics from positions."""
-        shifts = positions.groupBy(
-            "agent_id",
-            "zone_id",
-            "vehicle_type",
-            "event_date"
-        ).agg(
+        shifts = positions.groupBy("agent_id", "zone_id", "vehicle_type", "event_date").agg(
             F.min("event_timestamp").alias("shift_start_time"),
             F.max("event_timestamp").alias("shift_end_time"),
             F.count("*").alias("position_count"),
@@ -149,7 +125,7 @@ class AgentShiftAggregator:
         # Calculate shift duration
         shifts = shifts.withColumn(
             "shift_duration_hours",
-            (F.unix_timestamp("shift_end_time") - F.unix_timestamp("shift_start_time")) / 3600
+            (F.unix_timestamp("shift_end_time") - F.unix_timestamp("shift_start_time")) / 3600,
         )
 
         return shifts
@@ -157,13 +133,18 @@ class AgentShiftAggregator:
     def _aggregate_delivery_metrics(self, deliveries: DataFrame) -> DataFrame:
         """Aggregate delivery event metrics."""
         delivery_agg = deliveries.groupBy(
-            "agent_id",
-            F.to_date("event_timestamp").alias("event_date")
+            "agent_id", F.to_date("event_timestamp").alias("event_date")
         ).agg(
             F.count("*").alias("total_delivery_events"),
-            F.sum(F.when(F.col("event_type") == "DELIVERED", 1).otherwise(0)).alias("successful_deliveries"),
-            F.sum(F.when(F.col("event_type") == "DELIVERY_ATTEMPTED", 1).otherwise(0)).alias("failed_attempts"),
-            F.sum(F.when(F.col("event_type") == "DELIVERY_FAILED", 1).otherwise(0)).alias("final_failures"),
+            F.sum(F.when(F.col("event_type") == "DELIVERED", 1).otherwise(0)).alias(
+                "successful_deliveries"
+            ),
+            F.sum(F.when(F.col("event_type") == "DELIVERY_ATTEMPTED", 1).otherwise(0)).alias(
+                "failed_attempts"
+            ),
+            F.sum(F.when(F.col("event_type") == "DELIVERY_FAILED", 1).otherwise(0)).alias(
+                "final_failures"
+            ),
             F.sum(F.when(F.col("is_cod") == True, 1).otherwise(0)).alias("cod_deliveries"),
             F.sum("cod_collected").alias("total_cod_collected"),
             F.avg("time_at_location_seconds").alias("avg_time_at_stop_seconds"),
@@ -175,67 +156,66 @@ class AgentShiftAggregator:
         delivery_agg = delivery_agg.withColumn(
             "delivery_success_rate",
             F.when(
-                (F.col("successful_deliveries") + F.col("failed_attempts") + F.col("final_failures")) > 0,
-                F.col("successful_deliveries") /
-                (F.col("successful_deliveries") + F.col("failed_attempts") + F.col("final_failures"))
-            ).otherwise(None)
+                (
+                    F.col("successful_deliveries")
+                    + F.col("failed_attempts")
+                    + F.col("final_failures")
+                )
+                > 0,
+                F.col("successful_deliveries")
+                / (
+                    F.col("successful_deliveries")
+                    + F.col("failed_attempts")
+                    + F.col("final_failures")
+                ),
+            ).otherwise(None),
         )
 
         # Aggregate failure reasons
-        failure_reasons = deliveries.filter(
-            F.col("failure_reason").isNotNull()
-        ).groupBy(
-            "agent_id",
-            F.to_date("event_timestamp").alias("event_date")
-        ).agg(
-            F.collect_list("failure_reason").alias("failure_reasons")
+        failure_reasons = (
+            deliveries.filter(F.col("failure_reason").isNotNull())
+            .groupBy("agent_id", F.to_date("event_timestamp").alias("event_date"))
+            .agg(F.collect_list("failure_reason").alias("failure_reasons"))
         )
 
-        delivery_agg = delivery_agg.join(
-            failure_reasons,
-            ["agent_id", "event_date"],
-            "left"
-        )
+        delivery_agg = delivery_agg.join(failure_reasons, ["agent_id", "event_date"], "left")
 
         return delivery_agg
 
     def _combine_metrics(
-        self,
-        shifts: DataFrame,
-        distance: DataFrame,
-        deliveries: DataFrame
+        self, shifts: DataFrame, distance: DataFrame, deliveries: DataFrame
     ) -> DataFrame:
         """Combine all metrics into final shift summary."""
         combined = shifts.join(
             distance.select("agent_id", "event_date", "total_distance_km"),
             ["agent_id", "event_date"],
-            "left"
-        ).join(
-            deliveries,
-            ["agent_id", "event_date"],
-            "left"
-        )
+            "left",
+        ).join(deliveries, ["agent_id", "event_date"], "left")
 
         # Calculate derived metrics
-        combined = combined.withColumn(
-            "deliveries_per_hour",
-            F.when(
-                F.col("shift_duration_hours") > 0,
-                F.col("successful_deliveries") / F.col("shift_duration_hours")
-            ).otherwise(None)
-        ).withColumn(
-            "km_per_delivery",
-            F.when(
-                F.col("successful_deliveries") > 0,
-                F.col("total_distance_km") / F.col("successful_deliveries")
-            ).otherwise(None)
-        ).withColumn(
-            "utilization_rate",
-            F.when(
-                F.col("shift_duration_hours") > 0,
-                (F.col("successful_deliveries") * F.col("avg_time_at_stop_seconds") / 3600) /
-                F.col("shift_duration_hours")
-            ).otherwise(None)
+        combined = (
+            combined.withColumn(
+                "deliveries_per_hour",
+                F.when(
+                    F.col("shift_duration_hours") > 0,
+                    F.col("successful_deliveries") / F.col("shift_duration_hours"),
+                ).otherwise(None),
+            )
+            .withColumn(
+                "km_per_delivery",
+                F.when(
+                    F.col("successful_deliveries") > 0,
+                    F.col("total_distance_km") / F.col("successful_deliveries"),
+                ).otherwise(None),
+            )
+            .withColumn(
+                "utilization_rate",
+                F.when(
+                    F.col("shift_duration_hours") > 0,
+                    (F.col("successful_deliveries") * F.col("avg_time_at_stop_seconds") / 3600)
+                    / F.col("shift_duration_hours"),
+                ).otherwise(None),
+            )
         )
 
         return combined
@@ -243,34 +223,24 @@ class AgentShiftAggregator:
     def _calculate_rankings(self, shifts: DataFrame) -> DataFrame:
         """Calculate agent rankings within zone."""
         zone_window = Window.partitionBy("zone_id", "event_date").orderBy(
-            F.desc("successful_deliveries"),
-            F.desc("delivery_success_rate")
+            F.desc("successful_deliveries"), F.desc("delivery_success_rate")
         )
 
         overall_window = Window.partitionBy("event_date").orderBy(
-            F.desc("successful_deliveries"),
-            F.desc("delivery_success_rate")
+            F.desc("successful_deliveries"), F.desc("delivery_success_rate")
         )
 
-        shifts = shifts.withColumn(
-            "zone_rank",
-            F.row_number().over(zone_window)
-        ).withColumn(
-            "overall_rank",
-            F.row_number().over(overall_window)
-        ).withColumn(
-            "is_top_performer",
-            F.col("zone_rank") <= 3
+        shifts = (
+            shifts.withColumn("zone_rank", F.row_number().over(zone_window))
+            .withColumn("overall_rank", F.row_number().over(overall_window))
+            .withColumn("is_top_performer", F.col("zone_rank") <= 3)
         )
 
         return shifts
 
     def _aggregate_zone_performance(self, shifts: DataFrame) -> DataFrame:
         """Aggregate zone-level performance metrics."""
-        zone_agg = shifts.groupBy(
-            "zone_id",
-            "event_date"
-        ).agg(
+        zone_agg = shifts.groupBy("zone_id", "event_date").agg(
             F.count("agent_id").alias("active_agents"),
             F.sum("successful_deliveries").alias("total_deliveries"),
             F.sum("final_failures").alias("total_failures"),
@@ -283,10 +253,7 @@ class AgentShiftAggregator:
 
         # Zone rankings
         date_window = Window.partitionBy("event_date").orderBy(F.desc("total_deliveries"))
-        zone_agg = zone_agg.withColumn(
-            "zone_performance_rank",
-            F.row_number().over(date_window)
-        )
+        zone_agg = zone_agg.withColumn("zone_performance_rank", F.row_number().over(date_window))
 
         return zone_agg
 
@@ -307,11 +274,7 @@ class AgentShiftAggregator:
         positions = self._read_agent_positions(date)
         deliveries = self._read_delivery_events(date)
 
-        position_count = positions.count()
-        delivery_count = deliveries.count()
-        logger.info(f"Read {position_count} positions and {delivery_count} delivery events")
-
-        if position_count == 0:
+        if positions.limit(1).count() == 0:
             logger.warning("No positions found, skipping aggregation")
             return None, None
 
@@ -327,13 +290,10 @@ class AgentShiftAggregator:
         with_rankings = self._calculate_rankings(combined)
 
         # Add metadata
-        final_shifts = with_rankings.withColumn(
-            "aggregated_at",
-            F.current_timestamp()
-        ).withColumn(
-            "shift_date",
-            F.col("event_date")
+        final_shifts = with_rankings.withColumn("aggregated_at", F.current_timestamp()).withColumn(
+            "shift_date", F.col("event_date")
         )
+        final_shifts.persist(StorageLevel.MEMORY_AND_DISK)
 
         # Aggregate zone performance
         zone_performance = self._aggregate_zone_performance(final_shifts)
@@ -345,8 +305,7 @@ class AgentShiftAggregator:
             # Write agent shifts
             shift_path = f"{self.silver_path}/delivery/agent_shifts"
             (
-                final_shifts.write
-                .format("delta")
+                final_shifts.write.format("delta")
                 .mode("append")
                 .partitionBy("shift_date")
                 .save(shift_path)
@@ -356,13 +315,14 @@ class AgentShiftAggregator:
             # Write zone performance
             zone_path = f"{self.silver_path}/delivery/zone_performance"
             (
-                zone_performance.write
-                .format("delta")
+                zone_performance.write.format("delta")
                 .mode("append")
                 .partitionBy("event_date")
                 .save(zone_path)
             )
             logger.info(f"Wrote zone performance to {zone_path}")
+
+        final_shifts.unpersist()
 
         return final_shifts, zone_performance
 
@@ -381,22 +341,26 @@ def main():
         silver_path=args.silver_path,
     )
 
-    shifts, zones = aggregator.aggregate(
-        date=args.date,
-        write_output=not args.dry_run
-    )
+    shifts, zones = aggregator.aggregate(date=args.date, write_output=not args.dry_run)
 
     if shifts:
         print("\n=== Top Performing Agents ===")
         shifts.filter(F.col("is_top_performer")).select(
-            "agent_id", "zone_id", "successful_deliveries",
-            "delivery_success_rate", "deliveries_per_hour", "zone_rank"
+            "agent_id",
+            "zone_id",
+            "successful_deliveries",
+            "delivery_success_rate",
+            "deliveries_per_hour",
+            "zone_rank",
         ).orderBy("zone_id", "zone_rank").show(20)
 
         print("\n=== Zone Performance ===")
         zones.select(
-            "zone_id", "active_agents", "total_deliveries",
-            "avg_success_rate", "zone_performance_rank"
+            "zone_id",
+            "active_agents",
+            "total_deliveries",
+            "avg_success_rate",
+            "zone_performance_rank",
         ).orderBy("zone_performance_rank").show()
 
 

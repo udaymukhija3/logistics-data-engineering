@@ -2,12 +2,16 @@
 Unit tests for data quality checks.
 """
 
-import pytest
+import importlib
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from src.domain.constants import DELIVERY_EVENT_TYPES, INDIA_BOUNDS, SHIPMENT_EVENT_TYPES
 
 
 class TestDataQualityChecker:
@@ -19,9 +23,7 @@ class TestDataQualityChecker:
 
         # Should not raise
         checker = DataQualityChecker(
-            data_path="data",
-            output_path="data/quality_reports",
-            use_spark=False
+            data_path="data", output_path="data/quality_reports", use_spark=False
         )
         assert checker is not None
 
@@ -39,7 +41,7 @@ class TestDataQualityChecker:
             "success": True,
             "threshold": 1.0,
             "actual_ratio": 1.0,
-            "details": {}
+            "details": {},
         }
 
         assert "check" in result
@@ -47,15 +49,75 @@ class TestDataQualityChecker:
         assert "success" in result
         assert isinstance(result["success"], bool)
 
+    def test_invalid_threshold_returns_error_payload(self):
+        """Test threshold input validation error handling."""
+        from src.quality.quality_checks import DataQualityChecker
+
+        checker = DataQualityChecker(use_spark=False)
+        result = checker.check_not_null(
+            table_name="dummy",
+            column="id",
+            data_path="data/does_not_exist",
+            threshold=1.5,
+        )
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_empty_accepted_values_returns_error_payload(self):
+        """Test accepted values input validation."""
+        from src.quality.quality_checks import DataQualityChecker
+
+        checker = DataQualityChecker(use_spark=False)
+        result = checker.check_accepted_values(
+            table_name="dummy",
+            column="event_type",
+            data_path="data/does_not_exist",
+            accepted_values=[],
+        )
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_duckdb_reader_caches_per_path(self, tmp_path):
+        """Repeated checks on same table path should reuse cached dataframe."""
+        from src.quality.quality_checks import DataQualityChecker
+
+        table_path = tmp_path / "table"
+        table_path.mkdir()
+        (table_path / "part-000.parquet").touch()
+
+        checker = DataQualityChecker(use_spark=False)
+        mock_df = MagicMock(name="mock_df")
+        fetch_result = MagicMock()
+        fetch_result.fetchdf.return_value = mock_df
+        checker.conn = MagicMock()
+        checker.conn.execute.return_value = fetch_result
+
+        first = checker._read_parquet_duckdb(str(table_path))
+        second = checker._read_parquet_duckdb(str(table_path))
+
+        assert first is mock_df
+        assert second is mock_df
+        assert checker.conn.execute.call_count == 1
+
+    def test_postgres_password_has_no_insecure_default(self, monkeypatch):
+        """POSTGRES_PASSWORD should not fall back to a hardcoded secret."""
+        monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+
+        import src.config as config
+
+        config = importlib.reload(config)
+        assert config.WAREHOUSE_CONFIG["postgres_password"] == ""
+
 
 class TestQualityCheckLogic:
     """Tests for quality check logic."""
 
     def test_india_coordinate_bounds(self):
         """Test India coordinate validation bounds."""
-        # India bounds from config
-        lat_min, lat_max = 8.0, 37.0
-        lng_min, lng_max = 68.0, 97.5
+        lat_min = INDIA_BOUNDS["lat_min"]
+        lat_max = INDIA_BOUNDS["lat_max"]
+        lng_min = INDIA_BOUNDS["lng_min"]
+        lng_max = INDIA_BOUNDS["lng_max"]
 
         # Valid coordinates
         assert lat_min <= 28.6139 <= lat_max  # Delhi
@@ -83,13 +145,7 @@ class TestQualityCheckLogic:
 
     def test_event_type_validation(self):
         """Test shipment event type validation."""
-        valid_event_types = [
-            "CREATED", "PICKUP_SCHEDULED", "PICKED_UP",
-            "HUB_ARRIVED", "HUB_INSCAN", "HUB_SORTED",
-            "HUB_OUTSCAN", "HUB_DEPARTED", "IN_TRANSIT",
-            "OUT_FOR_DELIVERY", "DELIVERY_ATTEMPTED", "DELIVERED",
-            "DELIVERY_FAILED", "RETURNED_TO_ORIGIN", "LOST", "DAMAGED"
-        ]
+        valid_event_types = SHIPMENT_EVENT_TYPES
 
         # Valid events
         assert "DELIVERED" in valid_event_types
@@ -101,7 +157,7 @@ class TestQualityCheckLogic:
 
     def test_delivery_outcome_validation(self):
         """Test delivery event type validation."""
-        valid_outcomes = ["DELIVERED", "DELIVERY_ATTEMPTED", "DELIVERY_FAILED"]
+        valid_outcomes = DELIVERY_EVENT_TYPES
 
         assert "DELIVERED" in valid_outcomes
         assert "CANCELLED" not in valid_outcomes
@@ -129,13 +185,8 @@ class TestQualityReporting:
             "layer": "bronze",
             "run_time": "2024-01-15T10:00:00Z",
             "overall_success": True,
-            "summary": {
-                "total_checks": 10,
-                "passed": 10,
-                "failed": 0,
-                "pass_rate": 100.0
-            },
-            "checks": []
+            "summary": {"total_checks": 10, "passed": 10, "failed": 0, "pass_rate": 100.0},
+            "checks": [],
         }
 
         assert "layer" in report
@@ -160,5 +211,5 @@ class TestQualityReporting:
         assert pass_rate == 0
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
