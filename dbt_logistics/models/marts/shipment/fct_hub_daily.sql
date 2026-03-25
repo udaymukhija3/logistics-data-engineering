@@ -23,7 +23,7 @@ hubs as (
 enriched as (
     select
         -- Keys
-        {{ dbt_utils.generate_surrogate_key(['h.hub_id', 'h.event_date']) }} as hub_daily_key,
+        {{ generate_surrogate_key(['h.hub_id', 'h.event_date']) }} as hub_daily_key,
         h.hub_id,
         h.event_date as date_key,
 

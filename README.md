@@ -11,6 +11,8 @@ It is designed to demonstrate production-style engineering across streaming, bat
 - Batch reconstruction jobs for trips, shipment journeys, and delivery agent shifts
 - dbt-based dimensional modeling from staging to marts
 - Data quality checks with robust validation and report generation
+- Contract-aligned sample data bundle that keeps dashboard, quality checks, and dbt in sync
+- DuckDB source bootstrap that makes local dbt builds reproducible from parquet datasets
 - Multi-simulator orchestration with guarded thread failures and graceful shutdown behavior
 - Dashboard that supports both live data and sample data fallback for easy review
 - Docker-based local infrastructure and lightweight dashboard deployment path
@@ -93,6 +95,10 @@ make infra-up
 ### End-to-end demo run (local)
 
 ```bash
+# Build the verified sample bundle and warehouse views
+make sample-data
+make dbt-build
+
 # Generate events for a short demo window
 make simulate-demo
 
@@ -124,7 +130,9 @@ make stream
 
 ```bash
 make dbt-deps
+make dbt-bootstrap
 make dbt-run
+make dbt-build
 make dbt-test
 ```
 
@@ -135,6 +143,24 @@ make test
 make test-unit
 make test-integration
 ```
+
+## Verified Portfolio Path
+
+The repo now has a fully reproducible local analytics path that does not depend on external dbt packages or a running warehouse bootstrap:
+
+```bash
+make sample-data
+make dbt-build
+make quality
+make dashboard
+```
+
+What this proves locally:
+
+- The sample bundle matches the Bronze and Silver data contracts used by the platform
+- The quality framework passes end to end on the bundled datasets
+- DuckDB source views can be bootstrapped directly from parquet
+- `dbt build` completes successfully against the local warehouse file
 
 ## Service Endpoints (Local)
 
@@ -172,6 +198,8 @@ tests/                Unit and integration tests
 - Domain constants and validation helpers are centralized to reduce drift between simulators, quality checks, and downstream transformations.
 - Simulator orchestration uses failure guards to stop all modules when one crashes, preventing silent partial data generation.
 - Data quality checks support both Spark and DuckDB backends so validation can run in lightweight local/deployment environments.
+- The sample-data bundle is generated from canonical schemas so dashboard, quality, and dbt demos stay aligned.
+- DuckDB source bootstrapping turns filesystem parquet into dbt-readable sources with no manual warehouse prep.
 - The dashboard supports sample-data fallback to remain usable in portfolio and cloud demo contexts without full infrastructure.
 
 ## Deployment Notes

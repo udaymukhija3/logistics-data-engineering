@@ -19,7 +19,7 @@ with driver_metrics as (
 enriched as (
     select
         -- Keys
-        {{ dbt_utils.generate_surrogate_key(['driver_id', 'event_date']) }} as performance_key,
+        {{ generate_surrogate_key(['driver_id', 'event_date']) }} as performance_key,
         driver_id,
         vehicle_id,
         event_date as date_key,

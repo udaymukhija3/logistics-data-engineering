@@ -27,7 +27,8 @@ models:
         description: "Current vehicle state"
         tests:
           - accepted_values:
-              values: ['IDLE', 'MOVING', 'STOPPED']
+              arguments:
+                values: ['IDLE', 'MOVING', 'STOPPED']
 
   - name: stg_vehicle_telemetry
     description: "Cleaned vehicle telemetry readings"
@@ -45,7 +46,8 @@ models:
         description: "Engine temperature health status"
         tests:
           - accepted_values:
-              values: ['NORMAL', 'OVERHEATING', 'COLD_RUNNING']
+              arguments:
+                values: ['NORMAL', 'OVERHEATING', 'COLD_RUNNING']
 
   - name: stg_alerts
     description: "Cleaned driving alerts and events"
@@ -60,9 +62,11 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['SPEEDING', 'HARSH_BRAKING', 'HARSH_ACCELERATION']
+              arguments:
+                values: ['SPEEDING', 'HARSH_BRAKING', 'HARSH_ACCELERATION']
       - name: severity
         description: "Alert severity level"
         tests:
           - accepted_values:
-              values: ['INFO', 'WARNING', 'HIGH', 'CRITICAL']
+              arguments:
+                values: ['INFO', 'WARNING', 'HIGH', 'CRITICAL']

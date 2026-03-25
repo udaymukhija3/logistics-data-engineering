@@ -13,7 +13,7 @@
 
 with date_spine as (
     -- Generate dates for analysis range
-    {{ dbt_utils.date_spine(
+    {{ date_spine(
         datepart="day",
         start_date="cast('2024-01-01' as date)",
         end_date="cast('2026-12-31' as date)"
@@ -35,12 +35,12 @@ enriched as (
         extract(doy from date_day) as day_of_year,
 
         -- Derived
-        to_char(date_day, 'YYYY-MM') as year_month,
-        to_char(date_day, 'YYYY-Q') || extract(quarter from date_day) as year_quarter,
-        to_char(date_day, 'Month') as month_name,
-        to_char(date_day, 'Mon') as month_name_short,
-        to_char(date_day, 'Day') as day_name,
-        to_char(date_day, 'Dy') as day_name_short,
+        strftime(date_day, '%Y-%m') as year_month,
+        strftime(date_day, '%Y') || '-Q' || cast(extract(quarter from date_day) as varchar) as year_quarter,
+        strftime(date_day, '%B') as month_name,
+        strftime(date_day, '%b') as month_name_short,
+        strftime(date_day, '%A') as day_name,
+        strftime(date_day, '%a') as day_name_short,
 
         -- Flags
         case

@@ -19,7 +19,7 @@ with agent_shifts as (
 enriched as (
     select
         -- Keys
-        {{ dbt_utils.generate_surrogate_key(['agent_id', 'shift_date']) }} as agent_daily_key,
+        {{ generate_surrogate_key(['agent_id', 'shift_date']) }} as agent_daily_key,
         agent_id,
         zone_id,
         shift_date as date_key,

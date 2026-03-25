@@ -61,7 +61,7 @@ with_gaps as (
 with_trip_ids as (
     select
         *,
-        vehicle_id || '_' || to_char(event_date, 'YYYYMMDD') || '_' ||
+        vehicle_id || '_' || strftime(event_date, '%Y%m%d') || '_' ||
             lpad(cast(sum(case when is_trip_start then 1 else 0 end)
                 over (partition by vehicle_id order by event_timestamp) as varchar), 3, '0')
             as trip_id_generated

@@ -18,28 +18,30 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values:
-                - CREATED
-                - PICKUP_SCHEDULED
-                - PICKED_UP
-                - HUB_ARRIVED
-                - HUB_INSCAN
-                - HUB_SORTED
-                - HUB_OUTSCAN
-                - HUB_DEPARTED
-                - IN_TRANSIT
-                - OUT_FOR_DELIVERY
-                - DELIVERY_ATTEMPTED
-                - DELIVERED
-                - DELIVERY_FAILED
-                - RETURNED_TO_ORIGIN
-                - LOST
-                - DAMAGED
+              arguments:
+                values:
+                  - CREATED
+                  - PICKUP_SCHEDULED
+                  - PICKED_UP
+                  - HUB_ARRIVED
+                  - HUB_INSCAN
+                  - HUB_SORTED
+                  - HUB_OUTSCAN
+                  - HUB_DEPARTED
+                  - IN_TRANSIT
+                  - OUT_FOR_DELIVERY
+                  - DELIVERY_ATTEMPTED
+                  - DELIVERED
+                  - DELIVERY_FAILED
+                  - RETURNED_TO_ORIGIN
+                  - LOST
+                  - DAMAGED
       - name: journey_stage
         description: "Stage of the shipment journey"
         tests:
           - accepted_values:
-              values: ['FIRST_MILE', 'MID_MILE', 'LAST_MILE', 'EXCEPTION', 'OTHER']
+              arguments:
+                values: ['FIRST_MILE', 'MID_MILE', 'LAST_MILE', 'EXCEPTION', 'OTHER']
       - name: hub_id
         description: "Hub where event occurred"
       - name: origin_hub

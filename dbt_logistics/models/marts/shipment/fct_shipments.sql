@@ -23,7 +23,7 @@ hubs as (
 enriched as (
     select
         -- Keys
-        {{ dbt_utils.generate_surrogate_key(['j.shipment_id']) }} as shipment_key,
+        {{ generate_surrogate_key(['j.shipment_id']) }} as shipment_key,
         j.shipment_id,
         j.awb_number,
 

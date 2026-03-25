@@ -1,5 +1,33 @@
 -- dbt_logistics/macros/h3_index.sql
 
+{% macro generate_surrogate_key(columns) %}
+    md5(
+        concat_ws(
+            '||',
+            {% for column in columns -%}
+                coalesce(cast({{ column }} as varchar), '__dbt_null__')
+                {%- if not loop.last %}, {% endif -%}
+            {%- endfor %}
+        )
+    )
+{% endmacro %}
+
+
+{% macro date_spine(datepart, start_date, end_date) %}
+    {% if datepart != 'day' %}
+        {{ exceptions.raise_compiler_error('This project only implements day-level date_spine for DuckDB.') }}
+    {% endif %}
+
+    with recursive generated_dates as (
+        select cast({{ start_date }} as date) as date_day
+        union all
+        select date_day + interval '1 day'
+        from generated_dates
+        where date_day < cast({{ end_date }} as date)
+    )
+    select * from generated_dates
+{% endmacro %}
+
 {% macro h3_index(lat_column, lng_column, resolution=9) %}
     {#- 
     Generate H3 index from latitude and longitude.
@@ -153,16 +181,5 @@
 -- dbt_logistics/macros/generate_date_spine.sql
 
 {% macro generate_date_spine(start_date, end_date) %}
-    {#- 
-    Generate a date spine for joining.
-    -#}
-    
-    with recursive date_spine as (
-        select cast('{{ start_date }}' as date) as date_day
-        union all
-        select date_day + interval '1 day'
-        from date_spine
-        where date_day < '{{ end_date }}'
-    )
-    select * from date_spine
+    {{ date_spine('day', start_date, end_date) }}
 {% endmacro %}

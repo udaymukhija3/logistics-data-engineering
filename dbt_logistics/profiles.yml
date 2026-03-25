@@ -5,10 +5,10 @@ logistics:
   outputs:
     dev:
       type: duckdb
-      path: '/opt/airflow/data/warehouse/logistics.duckdb'
+      path: "{{ env_var('LOGISTICS_DUCKDB_PATH', '../data/warehouse/logistics.duckdb') }}"
       threads: 4
       
     prod:
       type: duckdb
-      path: '/opt/airflow/data/warehouse/logistics_prod.duckdb'
+      path: "{{ env_var('LOGISTICS_DUCKDB_PROD_PATH', '../data/warehouse/logistics_prod.duckdb') }}"
       threads: 8

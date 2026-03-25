@@ -2,13 +2,14 @@
 # Unified Logistics Data Platform - Makefile
 # =============================================================================
 
-.PHONY: setup infra-up infra-down simulate stream batch dbt-run dbt-test quality test lint help clean
+.PHONY: setup infra-up infra-down simulate stream batch sample-data dbt-bootstrap dbt-run dbt-build dbt-test quality test lint help clean
 
 # Configuration
 PYTHON := python3
 VENV := venv
 KAFKA_BOOTSTRAP := localhost:9092
 SPARK_PACKAGES := org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,io.delta:delta-spark_2.12:3.0.0
+DBT_DUCKDB_PATH := $(CURDIR)/data/warehouse/logistics.duckdb
 
 # =============================================================================
 # HELP
@@ -28,6 +29,7 @@ help:
 	@echo "  make simulate        - Run all data simulators"
 	@echo "  make simulate-demo   - Run 2-minute demo simulation"
 	@echo "  make simulate-fleet  - Run fleet GPS simulator only"
+	@echo "  make sample-data     - Generate a canonical sample-data bundle"
 	@echo ""
 	@echo "Processing:"
 	@echo "  make stream          - Start Spark streaming jobs (Kafka -> Bronze)"
@@ -37,8 +39,10 @@ help:
 	@echo "  make batch-shifts    - Run agent shift aggregation"
 	@echo ""
 	@echo "dbt:"
-	@echo "  make dbt-deps        - Install dbt packages"
+	@echo "  make dbt-deps        - Show dbt dependency status"
+	@echo "  make dbt-bootstrap   - Register parquet datasets as DuckDB source views"
 	@echo "  make dbt-run         - Run all dbt models"
+	@echo "  make dbt-build       - Bootstrap + run + test the dbt project"
 	@echo "  make dbt-test        - Run dbt tests"
 	@echo "  make dbt-docs        - Generate and serve dbt docs"
 	@echo ""
@@ -98,6 +102,10 @@ infra-logs:
 # =============================================================================
 # SIMULATORS
 # =============================================================================
+
+sample-data:
+	@echo "Generating contract-aligned sample data bundle..."
+	. $(VENV)/bin/activate && PYTHONPATH=$(CURDIR) python scripts/generate_sample_data.py
 
 simulate:
 	@echo "Starting all simulators..."
@@ -193,34 +201,41 @@ batch-local:
 # =============================================================================
 
 dbt-deps:
-	@echo "Installing dbt packages..."
-	cd dbt_logistics && dbt deps --profiles-dir .
+	@echo "This project vendors its dbt macros locally; no external dbt packages are required."
 
-dbt-run: dbt-deps
+dbt-bootstrap:
+	@echo "Bootstrapping DuckDB source views from parquet datasets..."
+	. $(VENV)/bin/activate && PYTHONPATH=$(CURDIR) python scripts/bootstrap_duckdb_sources.py --data-path data --db-path $(DBT_DUCKDB_PATH)
+
+dbt-run: dbt-bootstrap
 	@echo "Running dbt models..."
-	cd dbt_logistics && dbt run --profiles-dir .
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt run --profiles-dir .
+
+dbt-build: dbt-bootstrap
+	@echo "Running full dbt build..."
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt build --profiles-dir .
 
 dbt-run-staging:
-	cd dbt_logistics && dbt run --select staging --profiles-dir .
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt run --select staging --profiles-dir .
 
 dbt-run-intermediate:
-	cd dbt_logistics && dbt run --select intermediate --profiles-dir .
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt run --select intermediate --profiles-dir .
 
 dbt-run-marts:
-	cd dbt_logistics && dbt run --select marts --profiles-dir .
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt run --select marts --profiles-dir .
 
 dbt-test:
 	@echo "Running dbt tests..."
-	cd dbt_logistics && dbt test --profiles-dir .
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt test --profiles-dir .
 
 dbt-docs:
 	@echo "Generating dbt documentation..."
-	cd dbt_logistics && dbt docs generate --profiles-dir .
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt docs generate --profiles-dir .
 	@echo "Starting dbt docs server at http://localhost:8001"
-	cd dbt_logistics && dbt docs serve --port 8001 --profiles-dir .
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt docs serve --port 8001 --profiles-dir .
 
 dbt-clean:
-	cd dbt_logistics && dbt clean --profiles-dir .
+	cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt clean --profiles-dir .
 
 # =============================================================================
 # QUALITY CHECKS
@@ -285,6 +300,9 @@ demo:
 	@echo ""
 	@echo "Step 4: Running quality checks..."
 	@make quality || true
+	@echo ""
+	@echo "Step 5: Running analytics build on sample data..."
+	@make dbt-build || true
 	@echo ""
 	@echo "============================================"
 	@echo "   Demo Complete!"

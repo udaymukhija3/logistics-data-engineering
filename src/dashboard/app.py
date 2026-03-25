@@ -27,6 +27,19 @@ st.set_page_config(
 ROOT_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = ROOT_DIR / "data"
 SAMPLE_DIR = DATA_DIR / "sample"
+MANIFEST_PATH = SAMPLE_DIR / "manifest.json"
+
+PALETTE = {
+    "ink": "#102a43",
+    "slate": "#486581",
+    "sand": "#f6f1e9",
+    "card": "#fffaf4",
+    "accent": "#d96c3d",
+    "accent_alt": "#1f7a8c",
+    "success": "#2d936c",
+    "warning": "#d08c2f",
+    "danger": "#b8405e",
+}
 
 
 # Use sample data if live data doesn't exist
@@ -59,6 +72,144 @@ def _resolve_quality_dir() -> Path:
 QUALITY_DIR = _resolve_quality_dir()
 
 
+def inject_theme():
+    st.markdown(
+        f"""
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+            .stApp {{
+                background:
+                    radial-gradient(circle at top left, rgba(217, 108, 61, 0.12), transparent 30%),
+                    radial-gradient(circle at top right, rgba(31, 122, 140, 0.12), transparent 28%),
+                    linear-gradient(180deg, #fcf8f3 0%, #f2ede6 100%);
+                color: {PALETTE["ink"]};
+            }}
+
+            html, body, [class*="css"] {{
+                font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+            }}
+
+            [data-testid="stSidebar"] {{
+                background: linear-gradient(180deg, rgba(16, 42, 67, 0.98) 0%, rgba(29, 53, 87, 0.98) 100%);
+            }}
+
+            [data-testid="stSidebar"] * {{
+                color: #f8fafc;
+            }}
+
+            div[data-testid="metric-container"] {{
+                background: linear-gradient(180deg, rgba(255, 250, 244, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+                border: 1px solid rgba(16, 42, 67, 0.08);
+                border-radius: 20px;
+                padding: 1rem 1.15rem;
+                box-shadow: 0 18px 45px rgba(16, 42, 67, 0.08);
+            }}
+
+            .hero-card {{
+                background:
+                    linear-gradient(135deg, rgba(16, 42, 67, 0.97) 0%, rgba(17, 74, 95, 0.96) 55%, rgba(217, 108, 61, 0.92) 100%);
+                border-radius: 28px;
+                padding: 1.7rem 1.8rem;
+                color: #f8fafc;
+                box-shadow: 0 28px 65px rgba(16, 42, 67, 0.2);
+                margin-bottom: 1.2rem;
+                overflow: hidden;
+                position: relative;
+            }}
+
+            .hero-card::after {{
+                content: "";
+                position: absolute;
+                inset: auto -40px -55px auto;
+                width: 180px;
+                height: 180px;
+                background: rgba(255, 255, 255, 0.08);
+                border-radius: 50%;
+            }}
+
+            .hero-kicker {{
+                font-family: "IBM Plex Mono", monospace;
+                font-size: 0.78rem;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                opacity: 0.8;
+                margin-bottom: 0.75rem;
+            }}
+
+            .hero-title {{
+                font-size: 2.45rem;
+                font-weight: 700;
+                line-height: 1.05;
+                margin-bottom: 0.55rem;
+            }}
+
+            .hero-copy {{
+                font-size: 1rem;
+                max-width: 48rem;
+                line-height: 1.6;
+                opacity: 0.92;
+                margin-bottom: 1rem;
+            }}
+
+            .hero-chip-row {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.55rem;
+            }}
+
+            .hero-chip {{
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                padding: 0.42rem 0.72rem;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                font-size: 0.88rem;
+                backdrop-filter: blur(6px);
+            }}
+
+            .section-label {{
+                font-family: "IBM Plex Mono", monospace;
+                text-transform: uppercase;
+                letter-spacing: 0.12em;
+                color: {PALETTE["slate"]};
+                font-size: 0.76rem;
+                margin-bottom: 0.35rem;
+            }}
+
+            .domain-card {{
+                background: rgba(255, 250, 244, 0.92);
+                border: 1px solid rgba(16, 42, 67, 0.08);
+                border-radius: 22px;
+                padding: 1rem 1.1rem;
+                min-height: 150px;
+            }}
+
+            .domain-card h4 {{
+                margin: 0;
+                color: {PALETTE["ink"]};
+            }}
+
+            .domain-card .domain-metric {{
+                font-size: 1.7rem;
+                font-weight: 700;
+                margin: 0.6rem 0 0.35rem;
+                color: {PALETTE["accent"]};
+            }}
+
+            .domain-card p {{
+                margin: 0;
+                color: {PALETTE["slate"]};
+                line-height: 1.5;
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # =============================================================================
 # Data Loading
 # =============================================================================
@@ -81,6 +232,26 @@ def load_parquet(path: Path) -> pd.DataFrame:
         except Exception as e:
             st.warning(f"Could not load data from {path}: {e}")
             return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def load_manifest() -> dict:
+    if MANIFEST_PATH.exists():
+        return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+@st.cache_data(ttl=300)
+def load_latest_quality_report() -> dict:
+    if not QUALITY_DIR.exists():
+        return {}
+
+    reports = sorted(QUALITY_DIR.glob("*.json"))
+    if not reports:
+        return {}
+
+    latest = max(reports, key=lambda path: path.stat().st_mtime)
+    return json.loads(latest.read_text(encoding="utf-8"))
 
 
 def _alias_columns(df: pd.DataFrame, alias_map: dict[str, list[str]]) -> pd.DataFrame:
@@ -110,24 +281,90 @@ def normalize_trip_schema(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def format_compact_number(value: float | int | None) -> str:
+    if value is None:
+        return "N/A"
+    numeric = float(value)
+    if numeric >= 1_000_000:
+        return f"{numeric / 1_000_000:.1f}M"
+    if numeric >= 1_000:
+        return f"{numeric / 1_000:.1f}K"
+    return f"{numeric:,.0f}" if numeric.is_integer() else f"{numeric:,.1f}"
+
+
+def render_page_header(title: str, description: str, chips: list[str] | None = None):
+    chip_markup = "".join(
+        f"<span class='hero-chip'>{chip}</span>" for chip in (chips or []) if chip
+    )
+    st.markdown(
+        f"""
+        <section class="hero-card">
+            <div class="hero-kicker">Unified Logistics Platform</div>
+            <div class="hero-title">{title}</div>
+            <div class="hero-copy">{description}</div>
+            <div class="hero-chip-row">{chip_markup}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_label(label: str):
+    st.markdown(f"<div class='section-label'>{label}</div>", unsafe_allow_html=True)
+
+
+def style_figure(fig, height: int | None = None):
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(255,255,255,0.65)",
+        font=dict(family="Space Grotesk, Avenir Next, sans-serif", color=PALETTE["ink"]),
+        margin=dict(l=0, r=0, t=32, b=0),
+    )
+    if height is not None:
+        fig.update_layout(height=height)
+    return fig
+
+
+def render_domain_snapshot(title: str, metric: str, description: str):
+    st.markdown(
+        f"""
+        <div class="domain-card">
+            <h4>{title}</h4>
+            <div class="domain-metric">{metric}</div>
+            <p>{description}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # =============================================================================
 # Pages
 # =============================================================================
 
 
 def show_overview():
-    st.title("Unified Logistics Data Platform")
+    manifest = load_manifest()
+    quality_report = load_latest_quality_report()
+    quality_summary = quality_report.get("summary", {})
+    freshness = manifest.get("generated_at", "Live stream")
+
+    render_page_header(
+        "Operations Control Tower",
+        "A recruiter-ready walkthrough of a logistics data platform spanning simulators, streaming ingestion, batch reconstruction, dbt marts, quality automation, and interactive analytics.",
+        [
+            "Sample bundle" if USING_SAMPLE else "Live pipeline",
+            f"{quality_summary.get('passed', 0)}/{quality_summary.get('total_checks', 0)} quality checks",
+            "DuckDB + dbt buildable",
+            f"Updated {freshness}",
+        ],
+    )
 
     if USING_SAMPLE:
         st.info(
             "Viewing pre-generated sample data. "
-            "Run `make simulate-demo && make batch` to see live pipeline data."
+            "Run `make simulate-demo && make batch` to see live pipeline data, or `make sample-data && make dbt-build` for the verified portfolio path."
         )
-
-    st.markdown(
-        "Real-time and batch data platform for Fleet Telematics, Shipment Tracking, and Last-Mile Delivery analytics."
-    )
-    st.markdown("---")
 
     positions = load_parquet(BRONZE_DIR_VEHICLES)
     shipments = load_parquet(BRONZE_DIR_SHIPMENTS)
@@ -136,7 +373,29 @@ def show_overview():
     journeys = load_parquet(SILVER_DIR_JOURNEYS)
     shifts = load_parquet(SILVER_DIR_SHIFTS)
 
+    render_section_label("Platform Snapshot")
+    snapshot_cols = st.columns(3)
+    with snapshot_cols[0]:
+        render_domain_snapshot(
+            "Fleet Telematics",
+            format_compact_number(positions["vehicle_id"].nunique() if len(positions) else 0),
+            "Vehicles streaming GPS context, speed, and route behavior into the platform.",
+        )
+    with snapshot_cols[1]:
+        render_domain_snapshot(
+            "Shipment Tracking",
+            format_compact_number(shipments["shipment_id"].nunique() if len(shipments) else 0),
+            "Shipment lifecycle events modeled from origin handoff through final-mile delivery.",
+        )
+    with snapshot_cols[2]:
+        render_domain_snapshot(
+            "Last-Mile Delivery",
+            format_compact_number(deliveries["agent_id"].nunique() if len(deliveries) else 0),
+            "Agent productivity, delivery outcomes, and quality signals tied back to zones.",
+        )
+
     # KPI row
+    render_section_label("Service Level KPIs")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
@@ -168,9 +427,8 @@ def show_overview():
         else:
             st.metric("SLA Compliance", "N/A")
 
-    st.markdown("---")
-
     # Data pipeline summary
+    render_section_label("Pipeline Coverage")
     col_left, col_right = st.columns(2)
 
     with col_left:
@@ -207,13 +465,14 @@ def show_overview():
                 y=event_counts.index,
                 orientation="h",
                 labels={"x": "Count", "y": "Event Type"},
-                color_discrete_sequence=["#FF6B35"],
+                color_discrete_sequence=[PALETTE["accent"]],
             )
-            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300)
+            style_figure(fig, height=300)
             st.plotly_chart(fig, use_container_width=True)
 
     # Map
     if len(positions) and "latitude" in positions.columns:
+        render_section_label("Geospatial Footprint")
         st.subheader("Fleet Positions Across India")
         sample = positions.sample(min(2000, len(positions)))
         fig = px.scatter_mapbox(
@@ -227,14 +486,16 @@ def show_overview():
             mapbox_style="carto-positron",
             height=500,
         )
-        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+        style_figure(fig, height=500)
         st.plotly_chart(fig, use_container_width=True)
 
 
 def show_fleet_dashboard():
-    st.title("Fleet Telematics")
-    st.markdown("GPS tracking, trip reconstruction, and driver performance analytics.")
-    st.markdown("---")
+    render_page_header(
+        "Fleet Telematics",
+        "Vehicle telemetry, route reconstruction, and driver behavior analytics built to showcase operational observability at fleet scale.",
+        ["GPS traces", "Trip reconstruction", "Driver performance"],
+    )
 
     positions = load_parquet(BRONZE_DIR_VEHICLES)
     trips = normalize_trip_schema(load_parquet(SILVER_DIR_TRIPS))
@@ -260,7 +521,6 @@ def show_fleet_dashboard():
             "Drivers", positions["driver_id"].nunique() if "driver_id" in positions.columns else 0
         )
 
-    st.markdown("---")
     col_left, col_right = st.columns(2)
 
     with col_left:
@@ -269,10 +529,10 @@ def show_fleet_dashboard():
             positions.sample(min(5000, len(positions))),
             x="speed_kmh",
             nbins=40,
-            color_discrete_sequence=["#FF6B35"],
+            color_discrete_sequence=[PALETTE["accent"]],
             labels={"speed_kmh": "Speed (km/h)"},
         )
-        fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
+        style_figure(fig, height=350)
         st.plotly_chart(fig, use_container_width=True)
 
     with col_right:
@@ -286,7 +546,7 @@ def show_fleet_dashboard():
                 names="Vehicle Type",
                 color_discrete_sequence=px.colors.qualitative.Set2,
             )
-            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
+            style_figure(fig, height=350)
             st.plotly_chart(fig, use_container_width=True)
 
     # Trip analysis
@@ -303,9 +563,8 @@ def show_fleet_dashboard():
                 labels={"distance_km": "Distance (km)"},
                 color_discrete_sequence=["#2E86AB"],
             )
-            fig.update_layout(
-                title="Trip Distance Distribution", margin=dict(l=0, r=0, t=30, b=0), height=300
-            )
+            fig.update_layout(title="Trip Distance Distribution")
+            style_figure(fig, height=300)
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
@@ -317,9 +576,8 @@ def show_fleet_dashboard():
                 labels={"distance_km": "Distance (km)", "duration_minutes": "Duration (min)"},
                 color_discrete_sequence=px.colors.qualitative.Set2,
             )
-            fig.update_layout(
-                title="Distance vs Duration", margin=dict(l=0, r=0, t=30, b=0), height=300
-            )
+            fig.update_layout(title="Distance vs Duration")
+            style_figure(fig, height=300)
             st.plotly_chart(fig, use_container_width=True)
 
     # Map
@@ -336,14 +594,16 @@ def show_fleet_dashboard():
         mapbox_style="carto-positron",
         height=500,
     )
-    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+    style_figure(fig, height=500)
     st.plotly_chart(fig, use_container_width=True)
 
 
 def show_shipment_dashboard():
-    st.title("Shipment Tracking")
-    st.markdown("Package scan events, journey reconstruction, and SLA monitoring.")
-    st.markdown("---")
+    render_page_header(
+        "Shipment Tracking",
+        "Journey-level visibility across first mile, hub operations, and last-mile SLA performance.",
+        ["Lifecycle scans", "Hub throughput", "SLA monitoring"],
+    )
 
     events = load_parquet(BRONZE_DIR_SHIPMENTS)
     journeys = load_parquet(SILVER_DIR_JOURNEYS)
@@ -367,7 +627,6 @@ def show_shipment_dashboard():
         else:
             st.metric("SLA Compliance", "N/A")
 
-    st.markdown("---")
     col_left, col_right = st.columns(2)
 
     with col_left:
@@ -378,9 +637,10 @@ def show_shipment_dashboard():
                 x=event_counts.index,
                 y=event_counts.values,
                 labels={"x": "Event Type", "y": "Count"},
-                color_discrete_sequence=["#FF6B35"],
+                color_discrete_sequence=[PALETTE["accent"]],
             )
-            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350, xaxis_tickangle=-45)
+            fig.update_layout(xaxis_tickangle=-45)
+            style_figure(fig, height=350)
             st.plotly_chart(fig, use_container_width=True)
 
     with col_right:
@@ -392,9 +652,9 @@ def show_shipment_dashboard():
                 y=hub_counts.index,
                 orientation="h",
                 labels={"x": "Events", "y": "Hub"},
-                color_discrete_sequence=["#2E86AB"],
+                color_discrete_sequence=[PALETTE["accent_alt"]],
             )
-            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
+            style_figure(fig, height=350)
             st.plotly_chart(fig, use_container_width=True)
 
     if len(journeys) > 0:
@@ -412,7 +672,7 @@ def show_shipment_dashboard():
                     color=outcomes.index,
                     color_discrete_map=colors,
                 )
-                fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300)
+                style_figure(fig, height=300)
                 st.plotly_chart(fig, use_container_width=True)
 
         with col2:
@@ -431,14 +691,16 @@ def show_shipment_dashboard():
                     color=sla.index,
                     color_discrete_map=sla_colors,
                 )
-                fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300)
+                style_figure(fig, height=300)
                 st.plotly_chart(fig, use_container_width=True)
 
 
 def show_delivery_dashboard():
-    st.title("Last-Mile Delivery")
-    st.markdown("Delivery agent performance, zone analysis, and customer satisfaction.")
-    st.markdown("---")
+    render_page_header(
+        "Last-Mile Delivery",
+        "Agent efficiency, zone-level performance, and customer experience metrics tied back to operational execution.",
+        ["Agent shifts", "Zone analytics", "Customer satisfaction"],
+    )
 
     events = load_parquet(BRONZE_DIR_DELIVERY)
     shifts = load_parquet(SILVER_DIR_SHIFTS)
@@ -466,7 +728,6 @@ def show_delivery_dashboard():
         else:
             st.metric("Avg Rating", "N/A")
 
-    st.markdown("---")
     col_left, col_right = st.columns(2)
 
     with col_left:
@@ -484,7 +745,7 @@ def show_delivery_dashboard():
                 color=outcomes.index,
                 color_discrete_map=colors,
             )
-            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
+            style_figure(fig, height=350)
             st.plotly_chart(fig, use_container_width=True)
 
     with col_right:
@@ -492,9 +753,9 @@ def show_delivery_dashboard():
         if "customer_rating" in events.columns:
             ratings = events["customer_rating"].dropna()
             fig = px.histogram(
-                ratings, nbins=5, labels={"value": "Rating"}, color_discrete_sequence=["#FF6B35"]
+                ratings, nbins=5, labels={"value": "Rating"}, color_discrete_sequence=[PALETTE["accent"]]
             )
-            fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=350)
+            style_figure(fig, height=350)
             st.plotly_chart(fig, use_container_width=True)
 
     # Zone performance
@@ -530,22 +791,20 @@ def show_delivery_dashboard():
 
 
 def show_data_quality():
-    st.title("Data Quality")
-    st.markdown("Automated quality checks across bronze and silver layers.")
-    st.markdown("---")
+    render_page_header(
+        "Data Quality",
+        "Automated contract checks spanning Bronze ingestion and Silver business entities, with durable JSON artifacts for proof and debugging.",
+        ["Bronze + Silver coverage", "JSON reports", "DuckDB or Spark backend"],
+    )
 
     if not QUALITY_DIR.exists():
         st.warning("No quality reports found. Run `make quality` first.")
         return
 
-    reports = list(QUALITY_DIR.glob("*.json"))
-    if not reports:
+    report = load_latest_quality_report()
+    if not report:
         st.warning("No quality reports found.")
         return
-
-    latest = max(reports, key=lambda x: x.stat().st_mtime)
-    with open(latest) as f:
-        report = json.load(f)
 
     summary = report.get("summary", {})
     col1, col2, col3, col4 = st.columns(4)
@@ -557,8 +816,6 @@ def show_data_quality():
         st.metric("Failed", summary.get("failed", 0))
     with col4:
         st.metric("Pass Rate", f"{summary.get('pass_rate', 0)}%")
-
-    st.markdown("---")
 
     if report.get("overall_success"):
         st.success("All quality checks passed!")
@@ -572,9 +829,11 @@ def show_data_quality():
 
 
 def show_architecture():
-    st.title("Platform Architecture")
-    st.markdown("End-to-end data engineering platform built with the modern data stack.")
-    st.markdown("---")
+    render_page_header(
+        "Platform Architecture",
+        "An end-to-end data engineering design combining simulation, streaming, batch processing, analytics engineering, and operational quality controls.",
+        ["Kafka", "Spark", "dbt", "Airflow", "DuckDB", "Streamlit"],
+    )
 
     st.subheader("System Overview")
     st.code(
@@ -753,6 +1012,7 @@ def show_architecture():
 
 
 def main():
+    inject_theme()
     st.sidebar.title("Navigation")
 
     pages = {

@@ -23,7 +23,8 @@ models:
         description: "Hub classification"
         tests:
           - accepted_values:
-              values: ['MEGA', 'REGIONAL', 'LOCAL']
+              arguments:
+                values: ['MEGA', 'REGIONAL', 'LOCAL']
 
   # Fleet Facts
   - name: fct_trips
@@ -73,12 +74,14 @@ models:
         description: "SLA compliance status"
         tests:
           - accepted_values:
-              values: ['MET', 'BREACHED', 'FAILED', 'IN_PROGRESS']
+              arguments:
+                values: ['MET', 'BREACHED', 'FAILED', 'IN_PROGRESS']
       - name: journey_outcome
         description: "Final journey outcome"
         tests:
           - accepted_values:
-              values: ['DELIVERED', 'FAILED', 'RETURNED', 'STUCK', 'IN_TRANSIT']
+              arguments:
+                values: ['DELIVERED', 'FAILED', 'RETURNED', 'STUCK', 'IN_TRANSIT']
 
   - name: fct_hub_daily
     description: "Hub daily throughput fact table"
@@ -92,7 +95,8 @@ models:
         description: "Hub efficiency rating"
         tests:
           - accepted_values:
-              values: ['HIGH', 'MEDIUM', 'LOW']
+              arguments:
+                values: ['HIGH', 'MEDIUM', 'LOW']
 
   # Delivery Facts
   - name: fct_agent_daily
@@ -107,7 +111,8 @@ models:
         description: "Agent performance classification"
         tests:
           - accepted_values:
-              values: ['TOP_PERFORMER', 'GOOD', 'AVERAGE', 'BELOW_AVERAGE']
+              arguments:
+                values: ['TOP_PERFORMER', 'GOOD', 'AVERAGE', 'BELOW_AVERAGE']
 
   - name: fct_zone_daily
     description: "Delivery zone daily performance fact table"
@@ -121,4 +126,5 @@ models:
         description: "Zone performance classification"
         tests:
           - accepted_values:
-              values: ['EXCELLENT', 'GOOD', 'AVERAGE', 'NEEDS_IMPROVEMENT']
+              arguments:
+                values: ['EXCELLENT', 'GOOD', 'AVERAGE', 'NEEDS_IMPROVEMENT']

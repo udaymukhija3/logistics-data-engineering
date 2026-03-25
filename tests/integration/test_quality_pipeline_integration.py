@@ -12,10 +12,12 @@ class TestQualityChecksIntegration:
             use_spark=False,
         )
 
-        assert isinstance(success, bool)
+        assert success is True
         assert report["layer"] == "all"
+        assert report["overall_success"] is True
         assert "summary" in report
         assert report["summary"]["total_checks"] > 0
+        assert report["summary"]["failed"] == 0
         assert isinstance(report.get("checks"), list)
 
         report_files = list(tmp_path.glob("quality_all_*.json"))

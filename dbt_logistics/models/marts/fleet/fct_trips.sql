@@ -20,7 +20,7 @@ with trips as (
 enriched as (
     select
         -- Keys
-        {{ dbt_utils.generate_surrogate_key(['trip_id']) }} as trip_key,
+        {{ generate_surrogate_key(['trip_id']) }} as trip_key,
         trip_id,
         vehicle_id,
         driver_id,

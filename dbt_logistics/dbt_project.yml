@@ -58,29 +58,17 @@ models:
       +schema: marts
       +tags: ['marts']
       
-      core:
+      common:
         +tags: ['core', 'dimensions']
         
       fleet:
         +tags: ['fleet']
         
-      shipments:
+      shipment:
         +tags: ['shipments']
         
       delivery:
         +tags: ['delivery']
-
-seeds:
-  logistics:
-    +schema: seeds
-    ref_hubs:
-      +column_types:
-        hub_id: varchar(20)
-        latitude: decimal(10,6)
-        longitude: decimal(10,6)
-    ref_sla_definitions:
-      +column_types:
-        promised_days: integer
 
 tests:
   +severity: warn

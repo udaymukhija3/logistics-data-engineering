@@ -60,7 +60,7 @@ zone_aggregated as (
 enriched as (
     select
         -- Keys
-        {{ dbt_utils.generate_surrogate_key(['zone_id', 'date_key']) }} as zone_daily_key,
+        {{ generate_surrogate_key(['zone_id', 'date_key']) }} as zone_daily_key,
         zone_id,
         date_key,
 

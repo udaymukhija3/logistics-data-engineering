@@ -22,6 +22,7 @@ from airflow.utils.task_group import TaskGroup
 PROJECT_ROOT = os.getenv("PROJECT_ROOT", "/opt/airflow")
 SPARK_MASTER = os.getenv("SPARK_MASTER", "spark://spark-master:7077")
 SPARK_PACKAGES = "io.delta:delta-spark_2.12:3.0.0,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0"
+DUCKDB_PATH = os.getenv("LOGISTICS_DUCKDB_PATH", f"{PROJECT_ROOT}/data/warehouse/logistics.duckdb")
 
 # Default arguments
 default_args = {
@@ -127,32 +128,62 @@ with DAG(
     # ============================================
     with TaskGroup(group_id="dbt_transformations") as dbt_group:
 
-        dbt_deps = BashOperator(
-            task_id="dbt_deps",
-            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt deps --profiles-dir .",
+        dbt_bootstrap_sources = BashOperator(
+            task_id="dbt_bootstrap_sources",
+            bash_command=(
+                f"PYTHONPATH={PROJECT_ROOT} python {PROJECT_ROOT}/scripts/bootstrap_duckdb_sources.py "
+                f"--data-path {PROJECT_ROOT}/data --db-path {DUCKDB_PATH}"
+            ),
+        )
+
+        dbt_parse = BashOperator(
+            task_id="dbt_parse",
+            bash_command=(
+                f"cd {PROJECT_ROOT}/dbt_logistics && "
+                f"LOGISTICS_DUCKDB_PATH={DUCKDB_PATH} dbt parse --profiles-dir ."
+            ),
         )
 
         dbt_run_staging = BashOperator(
             task_id="dbt_run_staging",
-            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt run --select staging --profiles-dir .",
+            bash_command=(
+                f"cd {PROJECT_ROOT}/dbt_logistics && "
+                f"LOGISTICS_DUCKDB_PATH={DUCKDB_PATH} dbt run --select staging --profiles-dir ."
+            ),
         )
 
         dbt_run_intermediate = BashOperator(
             task_id="dbt_run_intermediate",
-            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt run --select intermediate --profiles-dir .",
+            bash_command=(
+                f"cd {PROJECT_ROOT}/dbt_logistics && "
+                f"LOGISTICS_DUCKDB_PATH={DUCKDB_PATH} dbt run --select intermediate --profiles-dir ."
+            ),
         )
 
         dbt_run_marts = BashOperator(
             task_id="dbt_run_marts",
-            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt run --select marts --profiles-dir .",
+            bash_command=(
+                f"cd {PROJECT_ROOT}/dbt_logistics && "
+                f"LOGISTICS_DUCKDB_PATH={DUCKDB_PATH} dbt run --select marts --profiles-dir ."
+            ),
         )
 
         dbt_test = BashOperator(
             task_id="dbt_test",
-            bash_command=f"cd {PROJECT_ROOT}/dbt_logistics && dbt test --profiles-dir .",
+            bash_command=(
+                f"cd {PROJECT_ROOT}/dbt_logistics && "
+                f"LOGISTICS_DUCKDB_PATH={DUCKDB_PATH} dbt test --profiles-dir ."
+            ),
         )
 
-        dbt_deps >> dbt_run_staging >> dbt_run_intermediate >> dbt_run_marts >> dbt_test
+        (
+            dbt_bootstrap_sources
+            >> dbt_parse
+            >> dbt_run_staging
+            >> dbt_run_intermediate
+            >> dbt_run_marts
+            >> dbt_test
+        )
 
     # ============================================
     # DATA QUALITY CHECKS

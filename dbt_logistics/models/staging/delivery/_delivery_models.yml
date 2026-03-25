@@ -25,7 +25,8 @@ models:
         description: "Current agent status"
         tests:
           - accepted_values:
-              values: ['AVAILABLE', 'ON_DELIVERY', 'BREAK', 'OFFLINE']
+              arguments:
+                values: ['AVAILABLE', 'ON_DELIVERY', 'BREAK', 'OFFLINE']
 
   - name: stg_delivery_events
     description: "Cleaned delivery attempt and completion events"
@@ -48,15 +49,18 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['DELIVERED', 'DELIVERY_ATTEMPTED', 'DELIVERY_FAILED']
+              arguments:
+                values: ['DELIVERED', 'DELIVERY_ATTEMPTED', 'DELIVERY_FAILED']
       - name: delivery_outcome
         description: "Outcome classification"
         tests:
           - accepted_values:
-              values: ['SUCCESS', 'FAILED', 'ATTEMPTED', 'OTHER']
+              arguments:
+                values: ['SUCCESS', 'FAILED', 'ATTEMPTED', 'OTHER']
       - name: customer_rating
         description: "Customer rating (1-5)"
         tests:
           - accepted_values:
-              values: [1, 2, 3, 4, 5]
-              quote: false
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false

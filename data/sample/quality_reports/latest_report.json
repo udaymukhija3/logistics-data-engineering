@@ -1,68 +1,436 @@
 {
-  "timestamp": "2026-02-11T06:34:13.729233",
-  "overall_success": false,
+  "layer": "all",
+  "run_time": "2026-03-17T17:20:12.053027",
+  "overall_success": true,
   "summary": {
-    "total_checks": 8,
-    "passed": 7,
-    "failed": 1,
-    "pass_rate": 87.5
+    "total_checks": 31,
+    "passed": 31,
+    "failed": 0,
+    "pass_rate": 100.0
   },
   "checks": [
     {
-      "check": "vehicle_positions_not_null",
+      "check": "row_count",
       "table": "vehicle_positions",
-      "layer": "bronze",
       "success": true,
-      "details": "All required fields present"
+      "expected_min": 1,
+      "actual_count": 2880
     },
     {
-      "check": "vehicle_speed_range",
+      "check": "not_null",
       "table": "vehicle_positions",
-      "layer": "bronze",
+      "column": "event_id",
       "success": true,
-      "details": "All speeds within 0-200 km/h"
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 2880,
+        "non_null_rows": 2880,
+        "null_rows": 0
+      }
     },
     {
-      "check": "coordinates_in_india",
+      "check": "not_null",
       "table": "vehicle_positions",
-      "layer": "bronze",
+      "column": "vehicle_id",
       "success": true,
-      "details": "All coordinates within India bounds"
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 2880,
+        "non_null_rows": 2880,
+        "null_rows": 0
+      }
     },
     {
-      "check": "shipment_event_sequence",
+      "check": "not_null",
+      "table": "vehicle_positions",
+      "column": "latitude",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 2880,
+        "non_null_rows": 2880,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "not_null",
+      "table": "vehicle_positions",
+      "column": "longitude",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 2880,
+        "non_null_rows": 2880,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "value_range",
+      "table": "vehicle_positions",
+      "column": "latitude",
+      "success": true,
+      "threshold": 0.98,
+      "actual_ratio": 1.0,
+      "expected_range": {
+        "min": 8.0,
+        "max": 37.0
+      },
+      "details": {
+        "total_rows": 2880,
+        "in_range_rows": 2880,
+        "actual_min": 12.852322,
+        "actual_max": 28.706342,
+        "actual_avg": 17.849775264930557
+      }
+    },
+    {
+      "check": "value_range",
+      "table": "vehicle_positions",
+      "column": "longitude",
+      "success": true,
+      "threshold": 0.98,
+      "actual_ratio": 1.0,
+      "expected_range": {
+        "min": 68.0,
+        "max": 97.5
+      },
+      "details": {
+        "total_rows": 2880,
+        "in_range_rows": 2880,
+        "actual_min": 72.7539,
+        "actual_max": 88.43716,
+        "actual_avg": 78.65267121284721
+      }
+    },
+    {
+      "check": "value_range",
+      "table": "vehicle_positions",
+      "column": "speed_kmh",
+      "success": true,
+      "threshold": 0.99,
+      "actual_ratio": 1.0,
+      "expected_range": {
+        "min": 0,
+        "max": 200
+      },
+      "details": {
+        "total_rows": 2880,
+        "in_range_rows": 2880,
+        "actual_min": 0.0,
+        "actual_max": 99.9,
+        "actual_avg": 36.05954861111111
+      }
+    },
+    {
+      "check": "row_count",
       "table": "shipment_events",
-      "layer": "bronze",
       "success": true,
-      "details": "Event sequences valid"
+      "expected_min": 1,
+      "actual_count": 11212
     },
     {
-      "check": "delivery_rating_range",
+      "check": "not_null",
+      "table": "shipment_events",
+      "column": "event_id",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 11212,
+        "non_null_rows": 11212,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "not_null",
+      "table": "shipment_events",
+      "column": "shipment_id",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 11212,
+        "non_null_rows": 11212,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "not_null",
+      "table": "shipment_events",
+      "column": "event_type",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 11212,
+        "non_null_rows": 11212,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "accepted_values",
+      "table": "shipment_events",
+      "column": "event_type",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "accepted_values": [
+        "CREATED",
+        "PICKUP_SCHEDULED",
+        "PICKED_UP",
+        "HUB_ARRIVED",
+        "HUB_INSCAN",
+        "HUB_SORTED",
+        "HUB_OUTSCAN",
+        "HUB_DEPARTED",
+        "IN_TRANSIT",
+        "OUT_FOR_DELIVERY",
+        "DELIVERY_ATTEMPTED",
+        "DELIVERED",
+        "DELIVERY_FAILED",
+        "RETURNED_TO_ORIGIN",
+        "LOST",
+        "DAMAGED"
+      ],
+      "details": {
+        "total_rows": 11212,
+        "valid_rows": 11212,
+        "invalid_values_sample": []
+      }
+    },
+    {
+      "check": "row_count",
+      "table": "agent_positions",
+      "success": true,
+      "expected_min": 1,
+      "actual_count": 3951
+    },
+    {
+      "check": "not_null",
+      "table": "agent_positions",
+      "column": "agent_id",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 3951,
+        "non_null_rows": 3951,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "value_range",
+      "table": "agent_positions",
+      "column": "latitude",
+      "success": true,
+      "threshold": 0.98,
+      "actual_ratio": 1.0,
+      "expected_range": {
+        "min": 8.0,
+        "max": 37.0
+      },
+      "details": {
+        "total_rows": 3951,
+        "in_range_rows": 3951,
+        "actual_min": 12.91248,
+        "actual_max": 28.673707,
+        "actual_avg": 17.719226887117184
+      }
+    },
+    {
+      "check": "value_range",
+      "table": "agent_positions",
+      "column": "longitude",
+      "success": true,
+      "threshold": 0.98,
+      "actual_ratio": 1.0,
+      "expected_range": {
+        "min": 68.0,
+        "max": 97.5
+      },
+      "details": {
+        "total_rows": 3951,
+        "in_range_rows": 3951,
+        "actual_min": 72.82015,
+        "actual_max": 88.421499,
+        "actual_avg": 77.7224478483928
+      }
+    },
+    {
+      "check": "row_count",
       "table": "delivery_events",
-      "layer": "bronze",
       "success": true,
-      "details": "Ratings between 1-5"
+      "expected_min": 1,
+      "actual_count": 1297
     },
     {
-      "check": "trip_distance_positive",
+      "check": "not_null",
+      "table": "delivery_events",
+      "column": "event_id",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 1297,
+        "non_null_rows": 1297,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "not_null",
+      "table": "delivery_events",
+      "column": "agent_id",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 1297,
+        "non_null_rows": 1297,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "accepted_values",
+      "table": "delivery_events",
+      "column": "event_type",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "accepted_values": [
+        "DELIVERED",
+        "DELIVERY_ATTEMPTED",
+        "DELIVERY_FAILED"
+      ],
+      "details": {
+        "total_rows": 1297,
+        "valid_rows": 1297,
+        "invalid_values_sample": []
+      }
+    },
+    {
+      "check": "value_range",
+      "table": "delivery_events",
+      "column": "customer_rating",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "expected_range": {
+        "min": 1,
+        "max": 5
+      },
+      "details": {
+        "total_rows": 1004,
+        "in_range_rows": 1004,
+        "actual_min": 1.0,
+        "actual_max": 5.0,
+        "actual_avg": 3.9880478087649402
+      }
+    },
+    {
+      "check": "row_count",
       "table": "trips",
-      "layer": "silver",
       "success": true,
-      "details": "All distances > 0"
+      "expected_min": 1,
+      "actual_count": 90
     },
     {
-      "check": "journey_sla_populated",
+      "check": "not_null",
+      "table": "trips",
+      "column": "trip_id",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 90,
+        "non_null_rows": 90,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "unique",
+      "table": "trips",
+      "column": "trip_id",
+      "success": true,
+      "details": {
+        "total_rows": 90,
+        "distinct_values": 90,
+        "duplicate_count": 0
+      }
+    },
+    {
+      "check": "value_range",
+      "table": "trips",
+      "column": "total_distance_km",
+      "success": true,
+      "threshold": 0.99,
+      "actual_ratio": 1.0,
+      "expected_range": {
+        "min": 0,
+        "max": 2000
+      },
+      "details": {
+        "total_rows": 90,
+        "in_range_rows": 90,
+        "actual_min": 26.78,
+        "actual_max": 47.14,
+        "actual_avg": 37.15022222222222
+      }
+    },
+    {
+      "check": "row_count",
       "table": "journeys",
-      "layer": "silver",
       "success": true,
-      "details": "SLA status set for all journeys"
+      "expected_min": 1,
+      "actual_count": 500
     },
     {
-      "check": "agent_shift_completeness",
+      "check": "not_null",
+      "table": "journeys",
+      "column": "shipment_id",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 500,
+        "non_null_rows": 500,
+        "null_rows": 0
+      }
+    },
+    {
+      "check": "unique",
+      "table": "journeys",
+      "column": "shipment_id",
+      "success": true,
+      "details": {
+        "total_rows": 500,
+        "distinct_values": 500,
+        "duplicate_count": 0
+      }
+    },
+    {
+      "check": "row_count",
       "table": "agent_shifts",
-      "layer": "silver",
-      "success": false,
-      "details": "2 agents missing shift data"
+      "success": true,
+      "expected_min": 1,
+      "actual_count": 60
+    },
+    {
+      "check": "not_null",
+      "table": "agent_shifts",
+      "column": "agent_id",
+      "success": true,
+      "threshold": 1.0,
+      "actual_ratio": 1.0,
+      "details": {
+        "total_rows": 60,
+        "non_null_rows": 60,
+        "null_rows": 0
+      }
     }
-  ]
+  ],
+  "sample_bundle_success": true
 }

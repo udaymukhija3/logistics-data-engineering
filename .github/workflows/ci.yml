@@ -68,24 +68,24 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install dbt
+    - name: Install dependencies
       run: |
-        pip install dbt-duckdb
+        pip install -r requirements.txt
 
-    - name: Install dbt packages
+    - name: Generate sample analytics inputs
+      run: |
+        PYTHONPATH=$GITHUB_WORKSPACE python scripts/generate_sample_data.py
+        PYTHONPATH=$GITHUB_WORKSPACE python scripts/bootstrap_duckdb_sources.py --data-path data --db-path data/warehouse/logistics.duckdb
+
+    - name: Validate dbt project parse
       run: |
         cd dbt_logistics
-        dbt deps --profiles-dir .
+        LOGISTICS_DUCKDB_PATH=$GITHUB_WORKSPACE/data/warehouse/logistics.duckdb dbt parse --profiles-dir .
 
-    - name: Validate dbt models compile
+    - name: Run dbt build
       run: |
         cd dbt_logistics
-        dbt compile --profiles-dir .
-
-    - name: Run dbt model validation
-      run: |
-        cd dbt_logistics
-        dbt parse --profiles-dir .
+        LOGISTICS_DUCKDB_PATH=$GITHUB_WORKSPACE/data/warehouse/logistics.duckdb dbt build --profiles-dir .
 
   docker-build:
     runs-on: ubuntu-latest
