@@ -1,6 +1,7 @@
 [server]
 headless = true
-port = 8501
+# port is intentionally not pinned here so $PORT (Render/Cloud Run/etc.)
+# or the --server.port CLI flag can take effect.
 enableCORS = false
 enableXsrfProtection = false
 

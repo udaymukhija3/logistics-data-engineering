@@ -1,12 +1,18 @@
 # Render Blueprint - Free tier deployment
-# Deploy: https://render.com/deploy
+# One-click deploy: https://render.com/deploy?repo=https://github.com/udaymukhija3/logistics-data-engineering
+#
+# Render injects $PORT at runtime. The Dockerfile entrypoint reads it,
+# so we do not pin STREAMLIT_SERVER_PORT here.
 services:
   - type: web
     name: logistics-dashboard
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
+    dockerTarget: dashboard
     plan: free
     envVars:
-      - key: STREAMLIT_SERVER_PORT
-        value: 8501
+      - key: LOGISTICS_DATA_MODE
+        value: sample
+      - key: PYTHONUNBUFFERED
+        value: "1"

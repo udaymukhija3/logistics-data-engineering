@@ -21,14 +21,15 @@ COPY data/sample/ data/sample/
 # Streamlit config
 COPY .streamlit/ .streamlit/
 
+# PORT is injected by most cloud platforms (Render, Cloud Run, Railway, Fly).
+# Default to 8501 so `docker run -p 8501:8501 ...` still works locally.
+ENV PORT=8501
 EXPOSE 8501
 
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+HEALTHCHECK CMD curl --fail http://localhost:${PORT:-8501}/_stcore/health || exit 1
 
-ENTRYPOINT ["streamlit", "run", "src/dashboard/app.py", \
-    "--server.port=8501", \
-    "--server.address=0.0.0.0", \
-    "--server.headless=true"]
+# Use shell form so $PORT is expanded at container start (not build time).
+ENTRYPOINT ["sh", "-c", "streamlit run src/dashboard/app.py --server.port=${PORT:-8501} --server.address=0.0.0.0 --server.headless=true"]
 
 
 # --- Stage: Full Platform ---
@@ -54,10 +55,8 @@ COPY . .
 # Create data directories
 RUN mkdir -p data/bronze data/silver data/gold data/checkpoints data/quality_reports data/warehouse
 
+ENV PORT=8501
 EXPOSE 8501 8080 8081
 
-# Default: run the dashboard
-CMD ["streamlit", "run", "src/dashboard/app.py", \
-    "--server.port=8501", \
-    "--server.address=0.0.0.0", \
-    "--server.headless=true"]
+# Default: run the dashboard. Shell form so $PORT expands at runtime.
+CMD ["sh", "-c", "streamlit run src/dashboard/app.py --server.port=${PORT:-8501} --server.address=0.0.0.0 --server.headless=true"]
