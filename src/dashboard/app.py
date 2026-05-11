@@ -454,7 +454,7 @@ def show_overview():
                 "Status": ["Active"] * 6,
             }
         )
-        st.dataframe(layer_data, use_container_width=True, hide_index=True)
+        st.dataframe(layer_data, width='stretch', hide_index=True)
 
     with col_right:
         st.subheader("Event Distribution")
@@ -468,7 +468,7 @@ def show_overview():
                 color_discrete_sequence=[PALETTE["accent"]],
             )
             style_figure(fig, height=300)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # Map
     if len(positions) and "latitude" in positions.columns:
@@ -487,7 +487,7 @@ def show_overview():
             height=500,
         )
         style_figure(fig, height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 
 def show_fleet_dashboard():
@@ -533,7 +533,7 @@ def show_fleet_dashboard():
             labels={"speed_kmh": "Speed (km/h)"},
         )
         style_figure(fig, height=350)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with col_right:
         st.subheader("Vehicle Type Breakdown")
@@ -547,7 +547,7 @@ def show_fleet_dashboard():
                 color_discrete_sequence=px.colors.qualitative.Set2,
             )
             style_figure(fig, height=350)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # Trip analysis
     if len(trips) > 0:
@@ -565,7 +565,7 @@ def show_fleet_dashboard():
             )
             fig.update_layout(title="Trip Distance Distribution")
             style_figure(fig, height=300)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             fig = px.scatter(
@@ -578,7 +578,7 @@ def show_fleet_dashboard():
             )
             fig.update_layout(title="Distance vs Duration")
             style_figure(fig, height=300)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # Map
     st.subheader("Vehicle Positions")
@@ -595,7 +595,7 @@ def show_fleet_dashboard():
         height=500,
     )
     style_figure(fig, height=500)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def show_shipment_dashboard():
@@ -641,7 +641,7 @@ def show_shipment_dashboard():
             )
             fig.update_layout(xaxis_tickangle=-45)
             style_figure(fig, height=350)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     with col_right:
         st.subheader("Hub Activity")
@@ -655,7 +655,7 @@ def show_shipment_dashboard():
                 color_discrete_sequence=[PALETTE["accent_alt"]],
             )
             style_figure(fig, height=350)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     if len(journeys) > 0:
         st.markdown("---")
@@ -673,7 +673,7 @@ def show_shipment_dashboard():
                     color_discrete_map=colors,
                 )
                 style_figure(fig, height=300)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
         with col2:
             st.subheader("SLA Status")
@@ -692,7 +692,7 @@ def show_shipment_dashboard():
                     color_discrete_map=sla_colors,
                 )
                 style_figure(fig, height=300)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
 
 def show_delivery_dashboard():
@@ -746,7 +746,7 @@ def show_delivery_dashboard():
                 color_discrete_map=colors,
             )
             style_figure(fig, height=350)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     with col_right:
         st.subheader("Rating Distribution")
@@ -756,7 +756,7 @@ def show_delivery_dashboard():
                 ratings, nbins=5, labels={"value": "Rating"}, color_discrete_sequence=[PALETTE["accent"]]
             )
             style_figure(fig, height=350)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # Zone performance
     if "zone_id" in events.columns:
@@ -772,7 +772,7 @@ def show_delivery_dashboard():
             .reset_index()
         )
         zone_stats["avg_rating"] = zone_stats["avg_rating"].round(2)
-        st.dataframe(zone_stats, use_container_width=True, hide_index=True)
+        st.dataframe(zone_stats, width='stretch', hide_index=True)
 
     # Top agents
     if len(shifts) > 0 and "successful_deliveries" in shifts.columns:
@@ -787,7 +787,7 @@ def show_delivery_dashboard():
                 "avg_customer_rating",
             ]
         ].reset_index(drop=True)
-        st.dataframe(top, use_container_width=True, hide_index=True)
+        st.dataframe(top, width='stretch', hide_index=True)
 
 
 def show_data_quality():
@@ -825,7 +825,7 @@ def show_data_quality():
     checks = report.get("checks", [])
     if checks:
         df = pd.DataFrame(checks)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width='stretch', hide_index=True)
 
 
 def show_architecture():
@@ -849,8 +849,8 @@ def show_architecture():
     | Delivery App |--+            +----------+                    |
     | (Agents)     |                                               v
     +--------------+                                      +--------+-----------+
-                                                          |   Delta Lake       |
-                      ANALYTICS         GOLD              |   Bronze Layer     |
+                                                          |   Bronze parquet   |
+                      ANALYTICS         GOLD              |   (event-level)    |
                     +----------+   +-----------+          +--------+-----------+
                     |          |   |           |                    |
                     |Streamlit |<--|  DuckDB   |<--- dbt ---+      v
@@ -860,10 +860,10 @@ def show_architecture():
                                                             | |  Reconstruct) |
                     +----------+   +-----------+            | +----+-----------+
                     | Jupyter  |<--|  Airflow  |            |      |
-                    | Notebook |   | (2AM DAG) |------------+      v
+                    | Notebook |   | (Daily DAG)|-----------+      v
                     +----------+   +-----------+              +----+-----------+
-                                                              | Delta Lake     |
-                                                              | Silver Layer   |
+                                                              | Silver parquet |
+                                                              | (entities/agg) |
                                                               +----------------+
     """,
         language=None,
@@ -893,7 +893,7 @@ def show_architecture():
                     "Apache Kafka",
                     "Spark Structured Streaming",
                     "Apache Spark 3.5",
-                    "Delta Lake (ACID)",
+                    "Parquet on disk (Bronze + Silver)",
                     "dbt 1.7+",
                     "Apache Airflow",
                     "Custom Framework + dbt Tests",
@@ -903,7 +903,7 @@ def show_architecture():
                 ],
             }
         )
-        st.dataframe(tech, use_container_width=True, hide_index=True)
+        st.dataframe(tech, width='stretch', hide_index=True)
 
     with col2:
         st.subheader("Data Model (Star Schema)")
@@ -941,7 +941,7 @@ def show_architecture():
                 ],
             }
         )
-        st.dataframe(model, use_container_width=True, hide_index=True)
+        st.dataframe(model, width='stretch', hide_index=True)
 
     st.markdown("---")
     st.subheader("Medallion Architecture")
@@ -954,7 +954,7 @@ def show_architecture():
             "- Schema validation\n"
             "- Ingestion metadata\n"
             "- Partitioned by date\n"
-            "- Delta Lake format"
+            "- Parquet on disk"
         )
 
     with col2:
@@ -1032,7 +1032,7 @@ def main():
     st.sidebar.info(
         "**Unified Logistics Data Platform**\n\n"
         "End-to-end data engineering project:\n"
-        "Kafka | Spark | Delta Lake | dbt | Airflow | DuckDB"
+        "Kafka | Spark | Parquet | dbt | Airflow | DuckDB"
     )
     data_mode = "Sample Data" if USING_SAMPLE else "Live Pipeline"
     st.sidebar.caption(f"Data mode: {data_mode}")

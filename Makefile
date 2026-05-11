@@ -2,7 +2,7 @@
 # Unified Logistics Data Platform - Makefile
 # =============================================================================
 
-.PHONY: setup infra-up infra-down simulate stream batch sample-data dbt-bootstrap dbt-run dbt-build dbt-test quality test lint help clean
+.PHONY: setup infra-up infra-down simulate stream batch sample-data dbt-bootstrap dbt-run dbt-build dbt-test quality test lint help clean demo demo-build demo-docker dashboard dashboard-docker
 
 # Configuration
 PYTHON := python3
@@ -10,6 +10,13 @@ VENV := venv
 KAFKA_BOOTSTRAP := localhost:9092
 SPARK_PACKAGES := org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,io.delta:delta-spark_2.12:3.0.0
 DBT_DUCKDB_PATH := $(CURDIR)/data/warehouse/logistics.duckdb
+
+# Lazy venv-activation: use the venv if it exists, otherwise fall through to the
+# already-active interpreter. This lets the sample/demo path run cold without
+# requiring `make setup` first.
+ACTIVATE := if [ -f $(VENV)/bin/activate ]; then . $(VENV)/bin/activate; fi
+DOCKER_DASHBOARD_IMAGE := logistics-dashboard
+DOCKER_DASHBOARD_PORT := 8501
 
 # =============================================================================
 # HELP
@@ -20,16 +27,22 @@ help:
 	@echo "Unified Logistics Data Platform"
 	@echo "================================"
 	@echo ""
+	@echo "Quick Demo (no infra required):"
+	@echo "  make demo-build      - Rebuild sample bundle, dbt build, quality run"
+	@echo "  make dashboard       - Run Streamlit dashboard locally"
+	@echo "  make demo-docker     - One-shot: build dashboard image and run it"
+	@echo "  make dashboard-docker- Build the dashboard image and serve at :8501"
+	@echo ""
 	@echo "Setup:"
 	@echo "  make setup           - Create venv, install deps"
-	@echo "  make infra-up        - Start all infrastructure (Kafka, Spark, Airflow)"
+	@echo "  make infra-up        - Start full infrastructure (Kafka/Spark/Airflow)"
 	@echo "  make infra-down      - Stop all infrastructure"
 	@echo ""
 	@echo "Data Generation:"
 	@echo "  make simulate        - Run all data simulators"
 	@echo "  make simulate-demo   - Run 2-minute demo simulation"
 	@echo "  make simulate-fleet  - Run fleet GPS simulator only"
-	@echo "  make sample-data     - Generate a canonical sample-data bundle"
+	@echo "  make sample-data     - Generate the canonical sample-data bundle"
 	@echo ""
 	@echo "Processing:"
 	@echo "  make stream          - Start Spark streaming jobs (Kafka -> Bronze)"
@@ -46,13 +59,12 @@ help:
 	@echo "  make dbt-test        - Run dbt tests"
 	@echo "  make dbt-docs        - Generate and serve dbt docs"
 	@echo ""
-	@echo "Quality:"
+	@echo "Quality and Test:"
 	@echo "  make quality         - Run data quality checks"
 	@echo "  make test            - Run pytest"
 	@echo ""
-	@echo "Demo:"
-	@echo "  make demo            - Run end-to-end demo"
-	@echo "  make dashboard       - Start Streamlit dashboard"
+	@echo "Live demo (requires infra-up):"
+	@echo "  make demo-live       - Run end-to-end live demo (Kafka/Spark/dbt)"
 	@echo "  make notebook        - Start Jupyter notebook"
 	@echo ""
 
@@ -105,7 +117,7 @@ infra-logs:
 
 sample-data:
 	@echo "Generating contract-aligned sample data bundle..."
-	. $(VENV)/bin/activate && PYTHONPATH=$(CURDIR) python scripts/generate_sample_data.py
+	@$(ACTIVATE); PYTHONPATH=$(CURDIR) $(PYTHON) scripts/generate_sample_data.py
 
 simulate:
 	@echo "Starting all simulators..."
@@ -283,38 +295,72 @@ format:
 # DEMO
 # =============================================================================
 
-demo:
+## demo-build:    Sample-mode build path used by the README quick-start.
+##                 Rebuilds sample data, bootstraps DuckDB, runs dbt build,
+##                 and refreshes the quality report. No infra required.
+demo-build:
 	@echo "============================================"
-	@echo "   Running End-to-End Demo"
+	@echo "   Building demo (sample mode, no infra)"
+	@echo "============================================"
+	@$(ACTIVATE); PYTHONPATH=$(CURDIR) $(PYTHON) scripts/generate_sample_data.py
+	@$(ACTIVATE); PYTHONPATH=$(CURDIR) $(PYTHON) scripts/bootstrap_duckdb_sources.py \
+		--data-path data/sample --db-path $(DBT_DUCKDB_PATH)
+	@cd dbt_logistics && LOGISTICS_DUCKDB_PATH=$(DBT_DUCKDB_PATH) dbt build --profiles-dir .
+	@$(ACTIVATE); PYTHONPATH=$(CURDIR) $(PYTHON) -m src.quality.quality_checks \
+		--layer all \
+		--data-path data/sample \
+		--output-path data/sample/quality_reports
+	@echo ""
+	@echo "Demo build complete. Run 'make dashboard' to launch the UI."
+
+demo: demo-build dashboard
+	@echo "Demo finished."
+
+## demo-live:     The original infra-driven demo: Kafka, Spark, batch, dbt.
+##                 Requires `make infra-up` to be working first.
+demo-live:
+	@echo "============================================"
+	@echo "   Running End-to-End Live Demo"
 	@echo "============================================"
 	@echo ""
 	@echo "Step 1: Starting infrastructure..."
-	@make infra-up || true
+	@$(MAKE) infra-up || true
 	@echo ""
 	@echo "Step 2: Running simulation (2 min)..."
-	@make simulate-demo &
+	@$(MAKE) simulate-demo &
 	@sleep 30
 	@echo ""
 	@echo "Step 3: Running batch jobs..."
-	@make batch-local || true
+	@$(MAKE) batch-local || true
 	@echo ""
 	@echo "Step 4: Running quality checks..."
-	@make quality || true
+	@$(MAKE) quality || true
 	@echo ""
-	@echo "Step 5: Running analytics build on sample data..."
-	@make dbt-build || true
+	@echo "Step 5: Running analytics build..."
+	@$(MAKE) dbt-build || true
 	@echo ""
 	@echo "============================================"
-	@echo "   Demo Complete!"
+	@echo "   Live demo complete."
 	@echo "============================================"
 
 notebook:
 	@echo "Starting Jupyter notebook..."
-	. $(VENV)/bin/activate && jupyter notebook notebooks/
+	@$(ACTIVATE); jupyter notebook notebooks/
 
 dashboard:
-	@echo "Starting Streamlit dashboard at http://localhost:8501"
-	. $(VENV)/bin/activate && streamlit run src/dashboard/app.py
+	@echo "Starting Streamlit dashboard at http://localhost:8501 (Ctrl+C to stop)"
+	@$(ACTIVATE); streamlit run src/dashboard/app.py
+
+## dashboard-docker: Build the slim dashboard image and serve it on :8501.
+##                    Requires Docker; mirrors the Render deploy exactly.
+dashboard-docker:
+	@echo "Building $(DOCKER_DASHBOARD_IMAGE) image (target: dashboard)..."
+	docker build --target dashboard -t $(DOCKER_DASHBOARD_IMAGE) .
+	@echo ""
+	@echo "Starting $(DOCKER_DASHBOARD_IMAGE) at http://localhost:$(DOCKER_DASHBOARD_PORT)"
+	docker run --rm -p $(DOCKER_DASHBOARD_PORT):8501 $(DOCKER_DASHBOARD_IMAGE)
+
+demo-docker: dashboard-docker
 
 # =============================================================================
 # CLEANUP

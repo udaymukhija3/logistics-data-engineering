@@ -96,6 +96,97 @@ jobs:
       run: |
         docker-compose -f infrastructure/docker-compose.yml config
 
+  dashboard-image:
+    name: Dashboard image build + health probe
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build dashboard image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        target: dashboard
+        push: false
+        load: true
+        tags: logistics-dashboard:ci
+
+    - name: Run dashboard container
+      run: |
+        docker run -d --name dashboard-ci -p 8501:8501 logistics-dashboard:ci
+        echo "Container ID: $(docker ps -q -f name=dashboard-ci)"
+
+    - name: Wait for /_stcore/health
+      run: |
+        set -e
+        for attempt in $(seq 1 30); do
+          if curl -fsS http://localhost:8501/_stcore/health >/dev/null 2>&1; then
+            echo "Health check passed on attempt $attempt"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "Health check failed after 60s"
+        docker logs dashboard-ci || true
+        exit 1
+
+    - name: Probe homepage
+      run: |
+        curl -fsS http://localhost:8501/ -o /tmp/index.html
+        test -s /tmp/index.html
+
+    - name: Tear down
+      if: always()
+      run: |
+        docker logs dashboard-ci || true
+        docker rm -f dashboard-ci || true
+
+  streamlit-pages:
+    name: Render every dashboard page
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dashboard deps
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-streamlit.txt
+
+    - name: Exercise every page via AppTest
+      run: |
+        python - <<'PY'
+        import os, sys
+        os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS","false")
+        sys.path.insert(0, ".")
+        from streamlit.testing.v1 import AppTest
+
+        pages = ["Overview", "Fleet Telematics", "Shipment Tracking",
+                 "Last-Mile Delivery", "Data Quality", "Architecture"]
+        failures = {}
+        for page in pages:
+            at = AppTest.from_file("src/dashboard/app.py", default_timeout=60)
+            at.run()
+            at.sidebar.radio[0].set_value(page).run()
+            if at.exception:
+                failures[page] = [str(e.value) for e in at.exception]
+            else:
+                print(f"[OK] {page}")
+        if failures:
+            print("\n=== FAILURES ===")
+            for p, errs in failures.items():
+                print(p, "::", errs)
+            sys.exit(1)
+        print("\nAll pages rendered cleanly.")
+        PY
+
   documentation:
     runs-on: ubuntu-latest
     steps:

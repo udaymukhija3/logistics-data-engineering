@@ -1,8 +1,10 @@
-# Render Blueprint - Free tier deployment
-# One-click deploy: https://render.com/deploy?repo=https://github.com/udaymukhija3/logistics-data-engineering
+# Render Blueprint - Free-tier deployment
+#
+# One-click deploy:
+#   https://render.com/deploy?repo=https://github.com/udaymukhija3/logistics-data-engineering
 #
 # Render injects $PORT at runtime. The Dockerfile entrypoint reads it,
-# so we do not pin STREAMLIT_SERVER_PORT here.
+# so STREAMLIT_SERVER_PORT is intentionally not pinned here.
 services:
   - type: web
     name: logistics-dashboard
@@ -11,8 +13,16 @@ services:
     dockerContext: .
     dockerTarget: dashboard
     plan: free
+    healthCheckPath: /_stcore/health
+    autoDeploy: true
     envVars:
       - key: LOGISTICS_DATA_MODE
         value: sample
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+        value: "false"
+      - key: STREAMLIT_SERVER_ENABLE_CORS
+        value: "false"
+      - key: STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION
+        value: "true"

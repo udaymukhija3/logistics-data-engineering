@@ -4,20 +4,28 @@ A modern logistics data platform: Streamlit dashboard backed by a Bronze/Silver/
 
 ## Live Demo
 
-- Hosted demo: _coming soon_ (the Render service URL will be added here once it is deployed).
-- Local demo screenshot: see [docs/DEMO.md](docs/DEMO.md).
+- Hosted demo: _coming soon_ — the Render service URL is added here once the Blueprint deploys.
+- Walkthrough script: see [docs/DEMO.md](docs/DEMO.md).
 
-## Deploy To Render
+## Deploy In One Click
 
-The dashboard ships with a free-tier Render Blueprint. One click stands up the Streamlit app from this repo:
+The dashboard ships with three zero-config deploy paths. Each serves the bundled `data/sample/` dataset, so no external database is required.
+
+### Render (Docker, free tier)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/udaymukhija3/logistics-data-engineering)
 
-The Blueprint builds the `dashboard` stage of the [Dockerfile](Dockerfile), runs Streamlit on Render's injected `$PORT`, and serves the bundled sample dataset (no external database required).
+The Blueprint at [render.yaml](render.yaml) builds the `dashboard` stage of the [Dockerfile](Dockerfile), runs Streamlit on Render's injected `$PORT`, and uses `/_stcore/health` for liveness checks.
 
-## Run Locally In One Command
+### Streamlit Community Cloud (Python only)
 
-You only need Docker. From a fresh clone:
+1. Push this repo to GitHub.
+2. On <https://streamlit.io/cloud> click **New app** and select the repo.
+3. Set **Main file path** to `streamlit_app.py` and **Requirements file** to `requirements-streamlit.txt`.
+
+[streamlit_app.py](streamlit_app.py) is a thin shim that forwards to the same `src/dashboard/app.py` used by the Docker deploy.
+
+### Docker locally
 
 ```bash
 git clone https://github.com/udaymukhija3/logistics-data-engineering.git
@@ -26,9 +34,15 @@ docker build --target dashboard -t logistics-dashboard . \
   && docker run --rm -p 8501:8501 logistics-dashboard
 ```
 
-Then open [http://localhost:8501](http://localhost:8501). The image bundles `data/sample/` so the dashboard renders real Bronze and Silver datasets immediately. No `.env` file is required for the demo path.
+Or via the Makefile shortcut:
 
-If you prefer a Python virtualenv instead of Docker, see the [Recommended Local Verification](#recommended-local-verification) section below.
+```bash
+make dashboard-docker
+```
+
+Then open <http://localhost:8501>. No `.env` file or external service is required.
+
+If you prefer a Python virtualenv, see [Recommended Local Verification](#recommended-local-verification) below.
 
 ---
 
@@ -155,53 +169,40 @@ If you prefer to run each step manually instead of using the Make target:
 python scripts/generate_sample_data.py
 
 python scripts/bootstrap_duckdb_sources.py \
-  --data-path data \
-  --db-path "$LOGISTICS_DUCKDB_PATH" \
-  --mode sample
+  --data-path data/sample \
+  --db-path "$LOGISTICS_DUCKDB_PATH"
 
 dbt build --project-dir dbt_logistics --profiles-dir dbt_logistics
 
 python -m src.quality.quality_checks \
   --layer all \
   --data-path data/sample \
-  --output-path data/sample/quality_reports \
-  --db-path "$LOGISTICS_DUCKDB_PATH"
+  --output-path data/sample/quality_reports
 ```
 
 ### 4. Launch the demo UI
 
 ```bash
-make demo
+make dashboard
 ```
 
 Then open [http://localhost:8501](http://localhost:8501).
 
-If you want to launch the UI without rebuilding first:
-
-```bash
-make dashboard DASHBOARD_DATA_MODE=sample
-```
-
-The default frontend is now a minimal read-only demo surface built for interviews and portfolio walkthroughs. It uses one explicit data root at a time. `sample` reads from `data/sample`, `live` prefers `data/live` when present, and `auto` only switches to live when the core Bronze datasets actually exist.
-
-If you want the older exploratory dashboard instead of the minimal demo surface:
-
-```bash
-make dashboard-legacy DASHBOARD_DATA_MODE=sample
-```
+The dashboard auto-detects whether `data/live/` parquet files exist. If they do, it uses live data; otherwise it falls back to the bundled `data/sample/` snapshot. There is no separate "sample mode" toggle.
 
 For the short walkthrough script, see [docs/DEMO.md](docs/DEMO.md).
 
 ### 5. What success looks like
 
-As of **April 7, 2026**, the repo verified locally with these results:
+The verified local run produces these results from a clean clone:
 
-- `python scripts/generate_sample_data.py` rebuilt the sample bundle and reported `31/31` quality checks passed
-- `pytest -q` passed with `92` tests
-- `dbt build --project-dir dbt_logistics --profiles-dir dbt_logistics` completed successfully
-- `python -m src.quality.quality_checks --layer all --data-path data/sample` passed `31/31` checks and recorded a quality run in `ops.pipeline_runs`
+- `python scripts/generate_sample_data.py` rebuilds the sample bundle and reports `31/31` quality checks passed.
+- `make demo-build` runs the full sample-mode build (sample bundle, DuckDB bootstrap, `dbt build`, quality run) green end to end.
+- `dbt build` reports `PASS=80, ERROR=0` across 13 table models, 6 view models, and 59 data tests.
+- `python -m src.quality.quality_checks --layer all --data-path data/sample` passes `31/31` checks and writes a JSON report under `data/sample/quality_reports/`.
+- `pytest tests/` passes the bundled unit and integration suites.
 
-Those exact counts may change as the repo evolves. The real signal is that the sample bundle rebuilds cleanly, tests pass, dbt builds cleanly, and the quality run stays green.
+Those exact counts may evolve. The signal that matters is that `make demo-build` finishes cleanly and `make dashboard` renders every page without warnings.
 
 ## Full Live-Stack Walkthrough
 
@@ -241,18 +242,6 @@ That brings up:
 - Spark master and worker
 - Postgres
 
-If you want the optional operator surfaces too:
-
-```bash
-make infra-up-full
-```
-
-That additionally starts:
-
-- Kafka UI
-- MinIO
-- Airflow with a custom image that includes PySpark, dbt, and the repo Python dependencies
-
 ### 3. Start streaming ingestion
 
 Use a separate terminal:
@@ -261,8 +250,7 @@ Use a separate terminal:
 make stream
 ```
 
-`make stream` now submits the job from inside the Docker Spark master container. You do not need a host `spark-submit` installation anymore.
-It writes Bronze data to `data/live/bronze` and checkpoints to `data/live/checkpoints`.
+`make stream` runs the Spark Structured Streaming job that consumes Kafka topics and writes Bronze parquet datasets to `data/bronze/` with checkpoints in `data/checkpoints/`. It assumes Spark is reachable on the configured `SPARK_MASTER`.
 
 ### 4. Generate live events
 
@@ -272,7 +260,7 @@ Use another terminal:
 make simulate-demo
 ```
 
-If you want more targeted domain testing:
+For more targeted domain testing:
 
 ```bash
 make simulate-fleet
@@ -288,37 +276,25 @@ After Bronze data has landed:
 make batch
 ```
 
-`make batch` now submits all three batch jobs into the Docker Spark cluster and defaults to partitioned parquet outputs for rerun-safe local backfills.
-For a single-date replay, use:
-
-```bash
-make backfill-live PROCESSING_DATE=YYYY-MM-DD
-```
-
-`make batch-local` remains a development shortcut, not the canonical live path. It assumes a local PySpark runtime and is mainly for debugging one machine at a time.
+`make batch` runs trip reconstruction, journey reconstruction, and agent shift aggregation against the shared Spark master and writes Silver outputs under `data/silver/`. `make batch-local` is the in-process PySpark shortcut for debugging on one machine.
 
 ### 6. Build analytics and run checks
 
 ```bash
-make live-demo-build
+make dbt-build
 
-make quality-live
+make quality
 ```
 
-If you want Airflow to orchestrate the same live path, trigger `logistics_daily_batch_processing` after Bronze data exists. The DAG now:
-
-- checks that live Bronze parquet files are present
-- runs the three PySpark batch jobs against the shared Spark master
-- bootstraps DuckDB in `live` mode
-- runs one `dbt build`
-- writes one full quality report under `data/live/quality_reports`
-- records run metadata into the local DuckDB warehouse
+If you want Airflow to orchestrate the same live path, trigger `logistics_daily_batch_processing` after Bronze data exists. The DAG runs the three PySpark batch jobs, bootstraps DuckDB, runs `dbt build`, and writes a quality report.
 
 ### 7. Open the dashboard
 
 ```bash
-make live-demo
+make dashboard
 ```
+
+The dashboard auto-detects live data: if `data/bronze/` and `data/silver/` contain parquet files it uses those; otherwise it falls back to the bundled `data/sample/`.
 
 ## Local Endpoints
 
@@ -336,16 +312,14 @@ For Airflow, the username is `admin` and the password is whatever you set in `AI
 
 ## What You Can Explore In The Dashboard
 
-The Streamlit app is a read-only operator and demo surface, not just a screenshot page.
+The Streamlit app is a read-only operator and demo surface, not just a screenshot page. Six pages are available from the sidebar:
 
-- **Overview**: warehouse KPIs, selected data root, mart previews, and fleet footprint
-- **Pipeline Status**: parquet inventories, mart counts, and latest quality status
-- **Warehouse Explorer**: direct previews of built DuckDB marts and dimensions
+- **Overview**: platform snapshot, service-level KPIs, pipeline coverage, and the geospatial fleet footprint
 - **Fleet Telematics**: GPS volume, speed patterns, reconstructed trips, and driving behavior
-- **Shipment Tracking**: shipment lifecycle distribution, hub activity, journey states, and SLA compliance
+- **Shipment Tracking**: shipment lifecycle distribution, hub activity, journey outcomes, and SLA compliance
 - **Last-Mile Delivery**: delivery success, agent productivity, zone performance, and customer ratings
 - **Data Quality**: latest quality run summary and check-level detail
-- **Architecture**: the intended full-stack design plus the smaller verified demo path
+- **Architecture**: the technology stack, star-schema design, and medallion layout
 
 ## Warehouse Design
 
@@ -394,23 +368,19 @@ tests/                Unit and integration tests
 
 - If you run `dbt` directly, export `LOGISTICS_DUCKDB_PATH` first. The profile falls back to a relative path that is easy to misread from the repo root.
 - If you are verifying the sample bundle, run quality against `data/sample`, not `data/`. The `data/` root is meant for live pipeline outputs.
-- The live path is isolated under `data/live`. Do not point dbt or quality at `data/` unless you intentionally want root-level live outputs.
-- `scripts/generate_sample_data.py` already performs a quality run as part of the sample bundle build.
-- `scripts/bootstrap_duckdb_sources.py` accepts `--mode sample|live|auto`. Use `sample` for the canonical demo and avoid mixing sample and live parquet roots in one build.
-- `make demo-build` and `make dashboard` work from an activated `venv`, but they also work from an already-prepared shell now. A missing `venv/` no longer blocks the verified local path.
-- `make stream` and `make batch` use the Docker Spark cluster by default. That is intentional. It keeps the live path honest and avoids hidden host dependencies.
-- The demo UI now prefers metadata from `ops.pipeline_runs` when available, and falls back to quality artifacts only if metadata has not been recorded yet.
+- `scripts/generate_sample_data.py` already performs a quality run as part of the sample bundle build, so a green run there means the bundle is healthy.
+- `scripts/bootstrap_duckdb_sources.py` auto-detects whether the supplied `--data-path` contains a top-level `bronze/silver` layout or a `sample/` subdirectory. Point it at `data/sample` for the demo build.
+- `make demo-build` and `make dashboard` work from an activated `venv`, but they also work from any shell that already has the deps installed. A missing `venv/` no longer blocks the verified local path.
+- The dashboard auto-selects sample vs. live data by looking for parquet files under `data/bronze/` and `data/silver/`; sample is the fallback. There is no separate "mode" environment variable.
 
 ## Additional Documentation
 
-- `DE_PROJECT_BRIEF.md`
-- `DE_CASE_STUDY.md`
-- [docs/RUNBOOK.md](docs/RUNBOOK.md)
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/PRODUCTIZATION_PLAN.md](docs/PRODUCTIZATION_PLAN.md)
-- `docs/logistics_platform_blueprint_part1.md`
-- `docs/logistics_platform_blueprint_part2.md`
-- `docs/logistics_platform_blueprint_part3.md`
+- [docs/DEMO.md](docs/DEMO.md) — the 5-minute walkthrough script
+- `DE_PROJECT_BRIEF.md` — short project brief
+- `DE_CASE_STUDY.md` — long-form case study
+- `docs/logistics_platform_blueprint_part1.md` — executive overview and architecture
+- `docs/logistics_platform_blueprint_part2.md` — data model, contracts, transformations
+- `docs/logistics_platform_blueprint_part3.md` — orchestration, quality, ops
 
 ## License
 

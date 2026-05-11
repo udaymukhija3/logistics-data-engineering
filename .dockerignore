@@ -1,26 +1,58 @@
+# Dev artifacts
 venv/
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
 .pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+
+# VCS / CI
 .git/
 .github/
-*.egg-info/
+.claude/
+
+# Runtime data (live pipeline outputs, kept locally only)
 data/bronze/
 data/silver/
 data/gold/
 data/checkpoints/
 data/quality_reports/
 data/warehouse/
+data/live/
+*.delta
+
+# dbt artifacts
 dbt_logistics/target/
 dbt_logistics/dbt_packages/
 dbt_logistics/logs/
+dbt_logistics/*.duckdb
+
+# Spark
 spark-warehouse/
 metastore_db/
-htmlcov/
-.coverage
+derby.log
+
+# Notebooks
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and secrets
+*.log
 .env
 .env.local
-*.log
 *.pem
 *.key
+credentials.json
+secrets.yaml
