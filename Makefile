@@ -5,7 +5,7 @@
 .PHONY: setup infra-up infra-down simulate stream batch sample-data dbt-bootstrap dbt-run dbt-build dbt-test quality test lint help clean demo demo-build demo-docker dashboard dashboard-docker
 
 # Configuration
-PYTHON := python3
+PYTHON ?= python
 VENV := venv
 KAFKA_BOOTSTRAP := localhost:9092
 SPARK_PACKAGES := org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,io.delta:delta-spark_2.12:3.0.0

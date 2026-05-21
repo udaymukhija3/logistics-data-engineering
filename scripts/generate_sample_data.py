@@ -12,7 +12,7 @@ import json
 import random
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -74,7 +74,7 @@ def seed_random_generators(seed: int = SEED) -> None:
 
 
 def _anchor_time() -> datetime:
-    return datetime.now(UTC).replace(minute=0, second=0, microsecond=0, tzinfo=None)
+    return datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
 
 def _prepare_output_dir(base_dir: Path) -> None:
@@ -220,7 +220,9 @@ def generate_vehicle_telemetry(output_dir: Path, vehicle_positions: pd.DataFrame
                 "event_id": f"vt_{uuid.uuid4().hex}",
                 "vehicle_id": row["vehicle_id"],
                 "timestamp": row["timestamp"],
-                "engine_rpm": int(700 if speed < 2 else min(3800, speed * 45 + random.randint(850, 1200))),
+                "engine_rpm": int(
+                    700 if speed < 2 else min(3800, speed * 45 + random.randint(850, 1200))
+                ),
                 "engine_temp_c": round(random.uniform(82, 102), 1),
                 "fuel_level_pct": row["fuel_level_pct"],
                 "battery_voltage": round(random.uniform(12.2, 14.4), 2),
@@ -260,7 +262,9 @@ def generate_alerts(output_dir: Path, vehicle_positions: pd.DataFrame) -> pd.Dat
             event_type = "SPEEDING"
             speed_limit = random.choice((60, 70, 80))
             overspeed_by = round(max(speed - speed_limit, 0), 1)
-            severity = "CRITICAL" if overspeed_by > 25 else "HIGH" if overspeed_by > 15 else "WARNING"
+            severity = (
+                "CRITICAL" if overspeed_by > 25 else "HIGH" if overspeed_by > 15 else "WARNING"
+            )
         elif acceleration <= -28 and random.random() < 0.6:
             event_type = "HARSH_BRAKING"
             deceleration_ms2 = round(abs(acceleration) / 3.6, 2)
@@ -463,7 +467,9 @@ def generate_delivery_events(
                 lifecycle = [("DELIVERY_ATTEMPTED", 1), ("DELIVERY_FAILED", 2)]
 
             for event_type, attempt_number in lifecycle:
-                timestamp = current_time + timedelta(minutes=attempt_number * random.randint(12, 35))
+                timestamp = current_time + timedelta(
+                    minutes=attempt_number * random.randint(12, 35)
+                )
                 if event_type != "DELIVERED":
                     failure_reason = random.choice(DELIVERY_FAILURE_REASONS)
 
@@ -492,7 +498,9 @@ def generate_delivery_events(
                         "is_cod": is_cod,
                         "cod_amount": cod_amount,
                         "cod_collected": cod_collected,
-                        "payment_mode": "COD" if is_cod else random.choice(("UPI", "CARD", "PREPAID")),
+                        "payment_mode": (
+                            "COD" if is_cod else random.choice(("UPI", "CARD", "PREPAID"))
+                        ),
                         "attempt_number": attempt_number,
                         "failure_reason": failure_reason,
                         "pod_type": pod_type,
@@ -541,8 +549,12 @@ def generate_agent_positions(output_dir: Path, delivery_events: pd.DataFrame) ->
                         "event_id": f"ap_{uuid.uuid4().hex}",
                         "agent_id": agent_id,
                         "timestamp": sample_time.isoformat(),
-                        "latitude": round(float(event["delivery_lat"]) + random.uniform(-0.01, 0.01), 6),
-                        "longitude": round(float(event["delivery_lng"]) + random.uniform(-0.01, 0.01), 6),
+                        "latitude": round(
+                            float(event["delivery_lat"]) + random.uniform(-0.01, 0.01), 6
+                        ),
+                        "longitude": round(
+                            float(event["delivery_lng"]) + random.uniform(-0.01, 0.01), 6
+                        ),
                         "speed_kmh": round(speed, 1),
                         "heading": round(random.uniform(0, 360), 1),
                         "accuracy_m": round(random.uniform(4, 15), 1),
@@ -567,7 +579,9 @@ def generate_agent_positions(output_dir: Path, delivery_events: pd.DataFrame) ->
                 pending_orders[agent_id] = max(0, pending_orders[agent_id] - 1)
 
         # Add a depot return point to extend the shift.
-        last_event_time = pd.Timestamp(agent_events.iloc[-1]["timestamp"]).to_pydatetime() + timedelta(minutes=25)
+        last_event_time = pd.Timestamp(
+            agent_events.iloc[-1]["timestamp"]
+        ).to_pydatetime() + timedelta(minutes=25)
         positions.append(
             {
                 "event_id": f"ap_{uuid.uuid4().hex}",
@@ -608,11 +622,17 @@ def generate_silver_trips(output_dir: Path, vehicle_positions: pd.DataFrame) -> 
 
         start_row = trip_df.iloc[0]
         end_row = trip_df.iloc[-1]
-        total_distance_km = round(float(end_row["odometer_km"]) - float(start_row["odometer_km"]), 2)
+        total_distance_km = round(
+            float(end_row["odometer_km"]) - float(start_row["odometer_km"]), 2
+        )
         if total_distance_km <= 0:
-            total_distance_km = round(float(trip_df["speed_kmh"].mean()) * (len(trip_df) * 2 / 60), 2)
+            total_distance_km = round(
+                float(trip_df["speed_kmh"].mean()) * (len(trip_df) * 2 / 60), 2
+            )
 
-        duration_minutes = round((end_row["timestamp"] - start_row["timestamp"]).total_seconds() / 60, 1)
+        duration_minutes = round(
+            (end_row["timestamp"] - start_row["timestamp"]).total_seconds() / 60, 1
+        )
         straight_line_distance = round(
             111.0
             * (
@@ -663,11 +683,11 @@ def generate_silver_trips(output_dir: Path, vehicle_positions: pd.DataFrame) -> 
                 "fuel_consumed_pct": fuel_consumed_pct,
                 "stop_count": int((trip_df["state"] == "STOPPED").sum()),
                 "straight_line_distance_km": straight_line_distance,
-                "route_efficiency": round(
-                    straight_line_distance / total_distance_km, 3
-                )
-                if total_distance_km > 0
-                else None,
+                "route_efficiency": (
+                    round(straight_line_distance / total_distance_km, 3)
+                    if total_distance_km > 0
+                    else None
+                ),
                 "trip_type": trip_type,
                 "is_round_trip": straight_line_distance < 2.0,
             }
@@ -690,7 +710,9 @@ def generate_silver_journeys(output_dir: Path, shipment_events: pd.DataFrame) ->
         last_row = journey_df.iloc[-1]
         promised_delivery = pd.Timestamp(first_row["promised_delivery"])
         end_time = pd.Timestamp(last_row["timestamp"])
-        duration_hours = round((end_time - pd.Timestamp(first_row["timestamp"])).total_seconds() / 3600, 2)
+        duration_hours = round(
+            (end_time - pd.Timestamp(first_row["timestamp"])).total_seconds() / 3600, 2
+        )
         last_event = last_row["event_type"]
 
         if last_event == "DELIVERED":
@@ -719,9 +741,11 @@ def generate_silver_journeys(output_dir: Path, shipment_events: pd.DataFrame) ->
                 "journey_duration_hours": duration_hours,
                 "journey_outcome": journey_outcome,
                 "sla_status": sla_status,
-                "sla_variance_hours": round((end_time - promised_delivery).total_seconds() / 3600, 2)
-                if last_event == "DELIVERED"
-                else None,
+                "sla_variance_hours": (
+                    round((end_time - promised_delivery).total_seconds() / 3600, 2)
+                    if last_event == "DELIVERED"
+                    else None
+                ),
                 "total_events": int(len(journey_df)),
                 "hubs_traversed": int(journey_df["hub_id"].nunique()),
                 "stuck_incidents": int((gaps > 24).sum()),
@@ -799,20 +823,28 @@ def generate_silver_agent_shifts(
                     3,
                 ),
                 "deliveries_per_hour": round(successful / max(shift_duration_hours, 1), 2),
-                "avg_customer_rating": round(float(ratings.mean()), 2) if not ratings.empty else None,
+                "avg_customer_rating": (
+                    round(float(ratings.mean()), 2) if not ratings.empty else None
+                ),
                 "ratings_received": int(ratings.count()),
                 "total_cod_collected": round(
-                    float(delivery_df.loc[delivery_df["event_type"] == "DELIVERED", "cod_collected"].sum()),
+                    float(
+                        delivery_df.loc[
+                            delivery_df["event_type"] == "DELIVERED", "cod_collected"
+                        ].sum()
+                    ),
                     2,
                 ),
                 "total_distance_km": distance_km,
-                "performance_tier": "TOP_PERFORMER"
-                if successful >= 18
-                else "GOOD"
-                if successful >= 12
-                else "AVERAGE"
-                if successful >= 6
-                else "BELOW_AVERAGE",
+                "performance_tier": (
+                    "TOP_PERFORMER"
+                    if successful >= 18
+                    else (
+                        "GOOD"
+                        if successful >= 12
+                        else "AVERAGE" if successful >= 6 else "BELOW_AVERAGE"
+                    )
+                ),
             }
         )
 
@@ -828,11 +860,17 @@ def generate_silver_agent_shifts(
                     "active_agents": int(zone_df["agent_id"].nunique()),
                     "total_deliveries": int(zone_df["successful_deliveries"].sum()),
                     "avg_success_rate": round(float(zone_df["delivery_success_rate"].mean()), 3),
-                    "avg_deliveries_per_hour": round(float(zone_df["deliveries_per_hour"].mean()), 2),
-                    "avg_customer_rating": round(float(zone_df["avg_customer_rating"].dropna().mean()), 2)
-                    if zone_df["avg_customer_rating"].dropna().any()
-                    else None,
-                    "top_performer_count": int((zone_df["performance_tier"] == "TOP_PERFORMER").sum()),
+                    "avg_deliveries_per_hour": round(
+                        float(zone_df["deliveries_per_hour"].mean()), 2
+                    ),
+                    "avg_customer_rating": (
+                        round(float(zone_df["avg_customer_rating"].dropna().mean()), 2)
+                        if zone_df["avg_customer_rating"].dropna().any()
+                        else None
+                    ),
+                    "top_performer_count": int(
+                        (zone_df["performance_tier"] == "TOP_PERFORMER").sum()
+                    ),
                 }
             )
 
@@ -863,7 +901,7 @@ def generate_manifest(
 ) -> dict[str, Any]:
     """Write a summary manifest used by docs and the dashboard."""
     manifest = {
-        "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "seed": SEED,
         "datasets": {
             name: {
@@ -925,9 +963,7 @@ def main() -> None:
     summary = result["quality_report"]["summary"]
     print("Generated logistics sample data bundle")
     print(f"Output directory: {result['output_dir']}")
-    print(
-        f"Quality checks: {summary.get('passed', 0)}/{summary.get('total_checks', 0)} passed"
-    )
+    print(f"Quality checks: {summary.get('passed', 0)}/{summary.get('total_checks', 0)} passed")
 
 
 if __name__ == "__main__":

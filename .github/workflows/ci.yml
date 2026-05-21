@@ -94,7 +94,7 @@ jobs:
 
     - name: Validate Docker Compose config
       run: |
-        docker-compose -f infrastructure/docker-compose.yml config
+        docker compose -f infrastructure/docker-compose.yml config
 
   dashboard-image:
     name: Dashboard image build + health probe

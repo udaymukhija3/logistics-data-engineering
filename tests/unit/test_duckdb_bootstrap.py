@@ -18,7 +18,9 @@ class TestDuckDbBootstrap:
         assert "main.agent_positions" in created_views
 
         with duckdb.connect(str(db_path)) as conn:
-            vehicle_count = conn.execute("select count(*) from main.vehicle_positions").fetchone()[0]
+            vehicle_count = conn.execute("select count(*) from main.vehicle_positions").fetchone()[
+                0
+            ]
             agent_count = conn.execute("select count(*) from main.agent_positions").fetchone()[0]
 
         assert vehicle_count > 0
