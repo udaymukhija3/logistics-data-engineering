@@ -201,6 +201,12 @@ jobs:
         test -d docs/
         test -f docs/logistics_platform_blueprint_part1.md
 
+    - name: Check recruiter site exists
+      run: |
+        test -f site/index.html
+        test -f site/styles.css
+        test -f site/assets/dashboard-preview.png
+
     - name: Validate Makefile
       run: |
         make help
