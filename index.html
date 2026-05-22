@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Unified Logistics Data Platform: recruiter-ready data engineering portfolio demo with Streamlit, dbt, DuckDB, Spark, Kafka, Airflow, Docker, and CI proof."
+    />
+    <title>Unified Logistics Data Platform</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Unified Logistics Data Platform home">
+        <span class="brand-mark">UL</span>
+        <span>Logistics Data Platform</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#proof">Proof</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#demo">Demo</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-label="Project overview">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+          <p class="eyebrow">Data engineering portfolio project</p>
+          <h1>Unified Logistics Data Platform</h1>
+          <p class="hero-copy">
+            A working logistics data stack that simulates operational events, lands Bronze
+            parquet, reconstructs Silver entities, models Gold marts in dbt and DuckDB,
+            validates contracts, and presents the result in Streamlit.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button primary" href="https://github.com/udaymukhija3/logistics-data-engineering">
+              View GitHub
+            </a>
+            <a
+              class="button"
+              href="https://github.com/udaymukhija3/logistics-data-engineering/actions/workflows/ci.yml?query=branch%3Amain"
+            >
+              Green CI
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="proof-strip" id="proof" aria-label="Verified proof points">
+        <div>
+          <span class="metric">31/31</span>
+          <span class="label">quality checks</span>
+        </div>
+        <div>
+          <span class="metric">PASS=80</span>
+          <span class="label">dbt build result</span>
+        </div>
+        <div>
+          <span class="metric">80</span>
+          <span class="label">pytest cases</span>
+        </div>
+        <div>
+          <span class="metric">6</span>
+          <span class="label">Streamlit pages tested</span>
+        </div>
+      </section>
+
+      <section class="section preview-section" aria-label="Dashboard preview">
+        <div class="section-copy">
+          <p class="eyebrow">Dashboard state from the sample bundle</p>
+          <h2>Recruiters can inspect the product story before reading code.</h2>
+          <p>
+            The static preview is generated from the same sample parquet and quality artifacts
+            shipped in the repository. The full Streamlit app adds sidebar navigation, maps,
+            Plotly charts, data-quality detail, and an architecture page.
+          </p>
+        </div>
+        <figure class="preview-frame">
+          <img
+            src="assets/dashboard-preview.png"
+            alt="Dashboard preview showing logistics KPIs, pipeline coverage, operational outcomes, and CI proof."
+            width="1600"
+            height="1040"
+          />
+        </figure>
+      </section>
+
+      <section class="section architecture" id="architecture" aria-label="Platform architecture">
+        <div class="section-copy compact">
+          <p class="eyebrow">What the system demonstrates</p>
+          <h2>End-to-end data platform mechanics, not isolated scripts.</h2>
+        </div>
+        <div class="flow" aria-label="Data flow">
+          <div class="flow-node">Simulators</div>
+          <div class="flow-link"></div>
+          <div class="flow-node">Kafka</div>
+          <div class="flow-link"></div>
+          <div class="flow-node">Spark Bronze</div>
+          <div class="flow-link"></div>
+          <div class="flow-node">Silver jobs</div>
+          <div class="flow-link"></div>
+          <div class="flow-node">dbt + DuckDB</div>
+          <div class="flow-link"></div>
+          <div class="flow-node">Streamlit</div>
+        </div>
+        <div class="capability-grid">
+          <article>
+            <h3>Operational domains</h3>
+            <p>Fleet telematics, shipment tracking, and last-mile delivery share contracts and data layers.</p>
+          </article>
+          <article>
+            <h3>Analytics engineering</h3>
+            <p>dbt builds staging, intermediate, and mart models with tested fact and dimension tables.</p>
+          </article>
+          <article>
+            <h3>Quality and CI</h3>
+            <p>GitHub Actions validates Python tests, dbt, Docker health, Compose config, and Streamlit rendering.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section demo" id="demo" aria-label="Demo options">
+        <div class="section-copy compact">
+          <p class="eyebrow">Recruiter demo paths</p>
+          <h2>Use the static page for outreach. Use Streamlit for live walkthroughs.</h2>
+        </div>
+        <div class="demo-grid">
+          <a class="demo-item" href="https://github.com/udaymukhija3/logistics-data-engineering">
+            <span class="demo-kicker">Source</span>
+            <strong>GitHub repository</strong>
+            <span>Code, sample data, Dockerfile, dbt models, tests, and docs.</span>
+          </a>
+          <a
+            class="demo-item"
+            href="https://github.com/udaymukhija3/logistics-data-engineering/actions/workflows/ci.yml?query=branch%3Amain"
+          >
+            <span class="demo-kicker">Verification</span>
+            <strong>Green CI run</strong>
+            <span>Automated proof that the demo path and dashboard still work.</span>
+          </a>
+          <a
+            class="demo-item"
+            href="https://render.com/deploy?repo=https://github.com/udaymukhija3/logistics-data-engineering"
+          >
+            <span class="demo-kicker">Hosted app</span>
+            <strong>Deploy to Render</strong>
+            <span>One-click Docker deploy for the full Streamlit dashboard.</span>
+          </a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
