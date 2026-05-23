@@ -4,9 +4,7 @@ A modern logistics data platform: Streamlit dashboard backed by a Bronze/Silver/
 
 ## Live Demo
 
-- Recruiter overview: the static portfolio site is in [site/](site/) and has
-  been pushed to the `gh-pages` branch. Enable GitHub Pages for that branch to
-  publish it at `https://udaymukhija3.github.io/logistics-data-engineering/`.
+- Public overview: <https://logistics-data-engineering.vercel.app>
 - Hosted Streamlit app: _coming soon_ — the Render service URL is added here once the Blueprint deploys.
 - Walkthrough script: see [docs/DEMO.md](docs/DEMO.md).
 
@@ -14,12 +12,13 @@ A modern logistics data platform: Streamlit dashboard backed by a Bronze/Silver/
 
 The dashboard ships with three zero-config deploy paths. Each serves the bundled `data/sample/` dataset, so no external database is required.
 
-### Recruiter overview (static)
+### Public overview (static)
 
-The [portfolio site](site/index.html) gives recruiters a fast project overview,
-dashboard preview, proof metrics, CI link, and deploy paths without requiring
-the Streamlit runtime to be awake. For the permanent public URL, enable GitHub
-Pages from the `gh-pages` branch in the repository settings.
+The [public overview site](site/index.html) gives stakeholders a fast read on
+the operating problem, dashboard surface, platform architecture, current build
+evidence, and deployment paths without requiring the Streamlit runtime to be
+awake. It is deployed on Vercel and can also be published from the `gh-pages`
+branch if GitHub Pages is enabled in the repository settings.
 
 ### Render (Docker, free tier)
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Unified Logistics Data Platform: recruiter-ready data engineering portfolio demo with Streamlit, dbt, DuckDB, Spark, Kafka, Airflow, Docker, and CI proof."
+      content="Unified Logistics Data Platform: an operational analytics demo for fleet, shipment, and last-mile teams with governed data models, quality checks, and dashboard-ready metrics."
     />
     <title>Unified Logistics Data Platform</title>
     <link rel="stylesheet" href="styles.css" />
@@ -27,22 +27,23 @@
       <section class="hero" aria-label="Project overview">
         <div class="hero-overlay"></div>
         <div class="hero-content">
-          <p class="eyebrow">Data engineering portfolio project</p>
+          <p class="eyebrow">Logistics operations analytics</p>
           <h1>Unified Logistics Data Platform</h1>
           <p class="hero-copy">
-            A working logistics data stack that simulates operational events, lands Bronze
-            parquet, reconstructs Silver entities, models Gold marts in dbt and DuckDB,
-            validates contracts, and presents the result in Streamlit.
+            A control-tower style data product for tracking fleet movement, shipment progress,
+            delivery capacity, and data quality from one trusted operating model. The platform
+            turns raw logistics events into metrics teams can use in daily reviews and technical
+            walkthroughs.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
             <a class="button primary" href="https://github.com/udaymukhija3/logistics-data-engineering">
-              View GitHub
+              Review Source
             </a>
             <a
               class="button"
               href="https://github.com/udaymukhija3/logistics-data-engineering/actions/workflows/ci.yml?query=branch%3Amain"
             >
-              Green CI
+              View Build Evidence
             </a>
           </div>
         </div>
@@ -51,36 +52,37 @@
       <section class="proof-strip" id="proof" aria-label="Verified proof points">
         <div>
           <span class="metric">31/31</span>
-          <span class="label">quality checks</span>
-        </div>
-        <div>
-          <span class="metric">PASS=80</span>
-          <span class="label">dbt build result</span>
+          <span class="label">quality gates passing</span>
         </div>
         <div>
           <span class="metric">80</span>
-          <span class="label">pytest cases</span>
+          <span class="label">dbt validations</span>
+        </div>
+        <div>
+          <span class="metric">80</span>
+          <span class="label">automated tests</span>
         </div>
         <div>
           <span class="metric">6</span>
-          <span class="label">Streamlit pages tested</span>
+          <span class="label">dashboard views verified</span>
         </div>
       </section>
 
       <section class="section preview-section" aria-label="Dashboard preview">
         <div class="section-copy">
-          <p class="eyebrow">Dashboard state from the sample bundle</p>
-          <h2>Recruiters can inspect the product story before reading code.</h2>
+          <p class="eyebrow">Operational view</p>
+          <h2>A dashboard for teams accountable for daily movement.</h2>
           <p>
-            The static preview is generated from the same sample parquet and quality artifacts
-            shipped in the repository. The full Streamlit app adds sidebar navigation, maps,
-            Plotly charts, data-quality detail, and an architecture page.
+            The preview uses the bundled logistics sample data to surface exceptions, throughput,
+            fleet utilization, delivery performance, and pipeline health. The live Streamlit app
+            adds drilldowns, maps, charts, data-quality detail, and architecture notes for a more
+            complete review.
           </p>
         </div>
         <figure class="preview-frame">
           <img
             src="assets/dashboard-preview.png"
-            alt="Dashboard preview showing logistics KPIs, pipeline coverage, operational outcomes, and CI proof."
+            alt="Dashboard preview showing logistics KPIs, pipeline coverage, operational outcomes, and build evidence."
             width="1600"
             height="1040"
           />
@@ -89,8 +91,8 @@
 
       <section class="section architecture" id="architecture" aria-label="Platform architecture">
         <div class="section-copy compact">
-          <p class="eyebrow">What the system demonstrates</p>
-          <h2>End-to-end data platform mechanics, not isolated scripts.</h2>
+          <p class="eyebrow">Platform scope</p>
+          <h2>From raw logistics events to trusted operating metrics.</h2>
         </div>
         <div class="flow" aria-label="Data flow">
           <div class="flow-node">Simulators</div>
@@ -108,45 +110,45 @@
         <div class="capability-grid">
           <article>
             <h3>Operational domains</h3>
-            <p>Fleet telematics, shipment tracking, and last-mile delivery share contracts and data layers.</p>
+            <p>Fleet telematics, shipment lifecycle events, and last-mile activity are modeled through shared contracts and layers.</p>
           </article>
           <article>
             <h3>Analytics engineering</h3>
-            <p>dbt builds staging, intermediate, and mart models with tested fact and dimension tables.</p>
+            <p>dbt converts source events into staging, intermediate, and mart models with tested fact and dimension tables.</p>
           </article>
           <article>
             <h3>Quality and CI</h3>
-            <p>GitHub Actions validates Python tests, dbt, Docker health, Compose config, and Streamlit rendering.</p>
+            <p>Automated checks validate data quality, model builds, Docker health, Compose config, and dashboard rendering.</p>
           </article>
         </div>
       </section>
 
       <section class="section demo" id="demo" aria-label="Demo options">
         <div class="section-copy compact">
-          <p class="eyebrow">Recruiter demo paths</p>
-          <h2>Use the static page for outreach. Use Streamlit for live walkthroughs.</h2>
+          <p class="eyebrow">Review paths</p>
+          <h2>Use the public site for a quick read and the dashboard for a live walkthrough.</h2>
         </div>
         <div class="demo-grid">
           <a class="demo-item" href="https://github.com/udaymukhija3/logistics-data-engineering">
-            <span class="demo-kicker">Source</span>
-            <strong>GitHub repository</strong>
-            <span>Code, sample data, Dockerfile, dbt models, tests, and docs.</span>
+            <span class="demo-kicker">Technical review</span>
+            <strong>Repository and implementation</strong>
+            <span>Source code, sample data, Dockerfile, dbt models, tests, and documentation.</span>
           </a>
           <a
             class="demo-item"
             href="https://github.com/udaymukhija3/logistics-data-engineering/actions/workflows/ci.yml?query=branch%3Amain"
           >
-            <span class="demo-kicker">Verification</span>
-            <strong>Green CI run</strong>
-            <span>Automated proof that the demo path and dashboard still work.</span>
+            <span class="demo-kicker">Delivery confidence</span>
+            <strong>Automated build evidence</strong>
+            <span>Current checks covering the demo path, data models, Docker build, and dashboard rendering.</span>
           </a>
           <a
             class="demo-item"
             href="https://render.com/deploy?repo=https://github.com/udaymukhija3/logistics-data-engineering"
           >
-            <span class="demo-kicker">Hosted app</span>
-            <strong>Deploy to Render</strong>
-            <span>One-click Docker deploy for the full Streamlit dashboard.</span>
+            <span class="demo-kicker">Interactive walkthrough</span>
+            <strong>Launch the dashboard</strong>
+            <span>One-click Docker deployment path for the full Streamlit application.</span>
           </a>
         </div>
       </section>

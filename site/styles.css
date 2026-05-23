@@ -25,6 +25,7 @@ body {
   color: var(--ink);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow-x: hidden;
 }
 
 a {
@@ -93,6 +94,7 @@ a {
   color: #ffffff;
   max-width: 52rem;
   position: relative;
+  width: 100%;
   z-index: 1;
 }
 
@@ -139,6 +141,7 @@ h3 {
   font-size: clamp(1.08rem, 2vw, 1.35rem);
   line-height: 1.55;
   max-width: 48rem;
+  overflow-wrap: break-word;
 }
 
 .hero-actions,
@@ -338,11 +341,20 @@ h3 {
 
   .hero {
     min-height: 86vh;
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
 
   h1 {
-    font-size: 2.65rem;
-    max-width: 8.5ch;
+    font-size: 2.4rem;
+    line-height: 1;
+    max-width: 9.5ch;
+  }
+
+  .hero-copy {
+    font-size: 1rem;
+    line-height: 1.46;
+    max-width: 21rem;
   }
 
   .button {
