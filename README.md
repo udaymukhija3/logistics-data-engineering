@@ -23,7 +23,7 @@ A modern logistics data platform: Streamlit dashboard backed by a Bronze/Silver/
 
 ## Live Demo
 
-- **Live dashboard (try it now):** <https://huggingface.co/spaces/udaymukhija3/logistics-data-platform>
+- **Live dashboard (try it now):** <https://huggingface.co/spaces/umukhija/logistics-data-platform>
 - Public overview: <https://logistics-data-engineering.vercel.app>
 - Walkthrough script: see [docs/DEMO.md](docs/DEMO.md).
 
