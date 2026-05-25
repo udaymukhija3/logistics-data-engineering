@@ -1,30 +1,75 @@
+---
+title: Unified Logistics Data Platform
+emoji: 🚚
+colorFrom: indigo
+colorTo: orange
+sdk: streamlit
+sdk_version: 1.53.1
+app_file: streamlit_app.py
+pinned: true
+license: mit
+short_description: Logistics lakehouse with a live operations dashboard.
+---
+
+<!--
+The YAML block above is Hugging Face Spaces metadata. GitHub hides this
+front matter on the rendered README; Hugging Face uses it to configure the
+Streamlit Space (SDK, version, entrypoint, theme). Leave it in place.
+-->
+
 # Unified Logistics Data Platform
 
 A modern logistics data platform: Streamlit dashboard backed by a Bronze/Silver/Gold lakehouse modeled in dbt, with a Spark + Kafka + Airflow live path for the full architecture walkthrough.
 
 ## Live Demo
 
+- **Live dashboard (try it now):** <https://huggingface.co/spaces/udaymukhija3/logistics-data-platform>
 - Public overview: <https://logistics-data-engineering.vercel.app>
-- Hosted Streamlit app: _coming soon_ — the Render service URL is added here once the Blueprint deploys.
 - Walkthrough script: see [docs/DEMO.md](docs/DEMO.md).
+
+The live dashboard is kept warm by a [scheduled GitHub Actions ping](.github/workflows/keepwarm.yml) so the first click responds in seconds, not minutes.
 
 ## Deploy In One Click
 
-The dashboard ships with three zero-config deploy paths. Each serves the bundled `data/sample/` dataset, so no external database is required.
+The dashboard ships with four zero-config deploy paths. Each serves the bundled `data/sample/` dataset, so no external database is required.
 
 ### Public overview (static)
 
 The [public overview site](site/index.html) gives stakeholders a fast read on
 the operating problem, dashboard surface, platform architecture, current build
 evidence, and deployment paths without requiring the Streamlit runtime to be
-awake. It is deployed on Vercel and can also be published from the `gh-pages`
-branch if GitHub Pages is enabled in the repository settings.
+awake. It is deployed on Vercel.
+
+### Hugging Face Spaces (recommended for recruiters)
+
+The primary live demo runs on Hugging Face Spaces. The Space config lives in
+the YAML front matter of this README (Hugging Face reads it, GitHub hides it),
+which means a one-time Space creation is all that's needed:
+
+1. Sign in at <https://huggingface.co> and click **New Space** → name it
+   `logistics-data-platform`, SDK **Streamlit**, hardware **CPU basic (free)**.
+2. Copy the Space's git URL (it looks like
+   `https://huggingface.co/spaces/<you>/logistics-data-platform`).
+3. Add it as a second remote and push:
+
+   ```bash
+   git remote add space https://huggingface.co/spaces/<you>/logistics-data-platform
+   git push space main
+   ```
+
+4. Hugging Face reads the front matter, installs `requirements-streamlit.txt`,
+   and serves `streamlit_app.py`. First build takes ~3 minutes; rebuilds are
+   fast on incremental pushes.
+
+After the Space is live, set a repo variable named `DASHBOARD_URL` (Repo
+settings → Secrets and variables → Actions → Variables) to the Space URL so
+the keep-warm cron can hit it.
 
 ### Render (Docker, free tier)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/udaymukhija3/logistics-data-engineering)
 
-The Blueprint at [render.yaml](render.yaml) builds the `dashboard` stage of the [Dockerfile](Dockerfile), runs Streamlit on Render's injected `$PORT`, and uses `/_stcore/health` for liveness checks.
+The Blueprint at [render.yaml](render.yaml) builds the `dashboard` stage of the [Dockerfile](Dockerfile), runs Streamlit on Render's injected `$PORT`, and uses `/_stcore/health` for liveness checks. Render's free tier sleeps after 15 minutes of inactivity, so it is documented as a fallback rather than the primary recruiter path.
 
 ### Streamlit Community Cloud (Python only)
 

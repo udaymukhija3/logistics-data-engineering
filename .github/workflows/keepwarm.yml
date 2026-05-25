@@ -1,0 +1,82 @@
+name: Keep dashboard warm
+
+# Pings the hosted dashboard on a 10-minute cron so it never falls into the
+# host's sleep window. Hugging Face Spaces, Streamlit Cloud, and Render all
+# sleep after some period of inactivity; this workflow makes a polite, low-cost
+# request that resets that timer so a recruiter who lands on the dashboard from
+# the README or the Vercel landing site gets a warm response instead of a
+# 20-60 second cold start.
+#
+# Setup:
+#   Repo Settings -> Secrets and variables -> Actions -> Variables tab
+#   add a variable named DASHBOARD_URL with the full https URL of the live
+#   Streamlit app (e.g. https://huggingface.co/spaces/<you>/logistics-data-platform).
+#
+# Without that variable, the job no-ops cleanly so the run still goes green.
+
+on:
+  schedule:
+    # Every 10 minutes. Hugging Face Spaces idles after ~48 hours of total
+    # inactivity but goes to a "cold" runtime after ~5-10 min idle; Streamlit
+    # Cloud sleeps after ~7 days but cold-starts the runtime after ~30 min
+    # idle; Render free tier sleeps after 15 min idle. 10 min keeps all three
+    # warm with one schedule.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keepwarm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping dashboard if URL is configured
+        env:
+          DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
+        run: |
+          set -u
+          if [ -z "${DASHBOARD_URL:-}" ]; then
+            echo "::notice::DASHBOARD_URL repo variable is not set. Skipping warm-up."
+            echo "Set it under: Settings -> Secrets and variables -> Actions -> Variables."
+            exit 0
+          fi
+
+          # Trim trailing slash and pick the health endpoint when the host is
+          # Streamlit-compatible. Hugging Face Spaces exposes /_stcore/health
+          # too once the embedded Streamlit server is up.
+          BASE="${DASHBOARD_URL%/}"
+          HEALTH="$BASE/_stcore/health"
+          echo "Pinging $BASE and $HEALTH"
+
+          # Probe twice. First request often wakes the runtime and returns a
+          # holding page; second request should return the live UI / health.
+          for attempt in 1 2; do
+            echo "--- attempt $attempt: GET $BASE ---"
+            curl -sS -L -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n" \
+              --max-time 90 --retry 3 --retry-delay 5 "$BASE" || true
+
+            echo "--- attempt $attempt: GET $HEALTH ---"
+            HEALTH_CODE=$(curl -sS -L -o /dev/null -w "%{http_code}" \
+              --max-time 30 --retry 2 --retry-delay 3 "$HEALTH" || echo "000")
+            echo "  health: HTTP $HEALTH_CODE"
+
+            # Health endpoint returns "ok" with HTTP 200 once Streamlit is up.
+            if [ "$HEALTH_CODE" = "200" ]; then
+              echo "::notice::Dashboard is warm (HTTP 200 on $HEALTH)"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          # Don't fail the run: some hosts (Hugging Face Spaces, in particular)
+          # serve a 303 redirect during boot, which is normal. The warm-up
+          # request still resets the idle timer, which is the only thing we
+          # actually care about.
+          echo "::notice::Dashboard pinged but did not return 200. Wake request still resets the idle timer."
