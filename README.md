@@ -2,7 +2,7 @@
 title: Unified Logistics Data Platform
 emoji: 🚚
 colorFrom: indigo
-colorTo: orange
+colorTo: yellow
 sdk: streamlit
 sdk_version: 1.53.1
 app_file: streamlit_app.py
