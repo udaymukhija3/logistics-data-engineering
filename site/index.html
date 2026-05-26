@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Unified Logistics Data Platform: an operational analytics demo for fleet, shipment, and last-mile teams with governed data models, quality checks, and dashboard-ready metrics."
+      content="Unified Logistics Data Platform: a control-tower demo showing fleet movement, shipment SLAs, last-mile performance, and data quality computed from raw logistics events."
     />
     <title>Unified Logistics Data Platform</title>
     <link rel="stylesheet" href="styles.css" />
@@ -17,141 +17,266 @@
         <span>Logistics Data Platform</span>
       </a>
       <nav aria-label="Primary navigation">
-        <a href="#proof">Proof</a>
-        <a href="#architecture">Architecture</a>
-        <a href="#demo">Demo</a>
+        <a href="#dashboard">Dashboard</a>
+        <a href="#operations">Operations</a>
+        <a href="#how">How it works</a>
       </nav>
+      <a class="header-cta" href="https://huggingface.co/spaces/umukhija/logistics-data-platform" target="_blank" rel="noopener">
+        Open dashboard →
+      </a>
     </header>
 
     <main id="top">
       <section class="hero" aria-label="Project overview">
-        <div class="hero-overlay"></div>
         <div class="hero-content">
-          <p class="eyebrow">Logistics operations analytics</p>
-          <h1>Unified Logistics Data Platform</h1>
+          <p class="eyebrow">Operations control tower</p>
+          <h1>Where is every shipment, and which ones are about to break SLA?</h1>
           <p class="hero-copy">
-            A control-tower style data product for tracking fleet movement, shipment progress,
-            delivery capacity, and data quality from one trusted operating model. The platform
-            turns raw logistics events into metrics teams can use in daily reviews and technical
-            walkthroughs.
+            One place to see fleet movement, shipment progress, last-mile capacity, and
+            data quality &mdash; built on top of raw logistics events, modeled with dbt,
+            and served through an interactive dashboard.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
-            <a class="button primary" href="https://github.com/udaymukhija3/logistics-data-engineering">
-              Review Source
+            <a class="button primary" href="https://huggingface.co/spaces/umukhija/logistics-data-platform" target="_blank" rel="noopener">
+              Open the live dashboard
             </a>
-            <a
-              class="button"
-              href="https://github.com/udaymukhija3/logistics-data-engineering/actions/workflows/ci.yml?query=branch%3Amain"
-            >
-              View Build Evidence
+            <a class="button ghost" href="#dashboard">
+              See it embedded
             </a>
           </div>
-        </div>
-      </section>
-
-      <section class="proof-strip" id="proof" aria-label="Verified proof points">
-        <div>
-          <span class="metric">31/31</span>
-          <span class="label">quality gates passing</span>
-        </div>
-        <div>
-          <span class="metric">80</span>
-          <span class="label">dbt validations</span>
-        </div>
-        <div>
-          <span class="metric">80</span>
-          <span class="label">automated tests</span>
-        </div>
-        <div>
-          <span class="metric">6</span>
-          <span class="label">dashboard views verified</span>
-        </div>
-      </section>
-
-      <section class="section preview-section" aria-label="Dashboard preview">
-        <div class="section-copy">
-          <p class="eyebrow">Operational view</p>
-          <h2>A dashboard for teams accountable for daily movement.</h2>
-          <p>
-            The preview uses the bundled logistics sample data to surface exceptions, throughput,
-            fleet utilization, delivery performance, and pipeline health. The live Streamlit app
-            adds drilldowns, maps, charts, data-quality detail, and architecture notes for a more
-            complete review.
+          <p class="hero-meta">
+            Demo data: 500 shipments &middot; 30 vehicles &middot; 60 agent shifts &middot; 8 hubs across 8 cities
           </p>
         </div>
-        <figure class="preview-frame">
-          <img
-            src="assets/dashboard-preview.png"
-            alt="Dashboard preview showing logistics KPIs, pipeline coverage, operational outcomes, and build evidence."
-            width="1600"
-            height="1040"
-          />
-        </figure>
       </section>
 
-      <section class="section architecture" id="architecture" aria-label="Platform architecture">
+      <section class="proof-strip" id="operations" aria-label="Operational KPIs computed from the bundled demo data">
+        <div>
+          <span class="metric">500</span>
+          <span class="label">shipments tracked end-to-end</span>
+        </div>
+        <div class="alert">
+          <span class="metric">460</span>
+          <span class="label">SLA exceptions flagged</span>
+        </div>
+        <div>
+          <span class="metric">78%</span>
+          <span class="label">first-attempt delivery success</span>
+        </div>
+        <div>
+          <span class="metric">3,344<span class="unit">&nbsp;km</span></span>
+          <span class="label">fleet movement reconstructed</span>
+        </div>
+      </section>
+
+      <p class="proof-footnote">
+        Numbers computed from the bundled sample dataset (<code>data/sample/</code>). The hosted
+        dashboard recomputes them on every page load.
+      </p>
+
+      <section class="section domain-section" aria-label="Operational domains">
         <div class="section-copy compact">
-          <p class="eyebrow">Platform scope</p>
-          <h2>From raw logistics events to trusted operating metrics.</h2>
+          <p class="eyebrow">What it tells you</p>
+          <h2>Three operational lenses, one trusted dataset.</h2>
+          <p>
+            Click a lens to see the questions it answers and the underlying data that
+            powers it.
+          </p>
         </div>
+
+        <div class="lens-tabs" role="tablist">
+          <button class="lens-tab is-active" role="tab" aria-selected="true" data-lens="fleet">Fleet</button>
+          <button class="lens-tab" role="tab" aria-selected="false" data-lens="shipments">Shipments</button>
+          <button class="lens-tab" role="tab" aria-selected="false" data-lens="lastmile">Last-mile</button>
+        </div>
+
+        <div class="lens-panels">
+          <article class="lens-panel is-active" data-lens="fleet" role="tabpanel">
+            <div class="lens-questions">
+              <p class="eyebrow">Questions answered</p>
+              <ul>
+                <li>Which vehicles moved today, and how far?</li>
+                <li>Where are trips concentrating, and where is fleet sitting idle?</li>
+                <li>How efficient are the actual routes vs. straight-line distance?</li>
+              </ul>
+            </div>
+            <div class="lens-stats">
+              <div><span class="lens-stat">30</span><span class="lens-label">vehicles tracked</span></div>
+              <div><span class="lens-stat">90</span><span class="lens-label">trips reconstructed</span></div>
+              <div><span class="lens-stat">2,880</span><span class="lens-label">raw GPS events</span></div>
+              <div><span class="lens-stat">3,344&nbsp;km</span><span class="lens-label">distance covered</span></div>
+            </div>
+            <p class="lens-source">
+              Source: <code>bronze/vehicle_positions</code> &rarr; <code>silver/fleet/trips</code> &rarr; <code>fct_trips</code> mart.
+            </p>
+          </article>
+
+          <article class="lens-panel" data-lens="shipments" role="tabpanel">
+            <div class="lens-questions">
+              <p class="eyebrow">Questions answered</p>
+              <ul>
+                <li>Which shipments are at risk of breaching SLA right now?</li>
+                <li>Where are shipments getting stuck between hubs?</li>
+                <li>What is the typical journey duration by lane?</li>
+              </ul>
+            </div>
+            <div class="lens-stats">
+              <div><span class="lens-stat">500</span><span class="lens-label">journeys reconstructed</span></div>
+              <div><span class="lens-stat">460</span><span class="lens-label">SLA exceptions</span></div>
+              <div><span class="lens-stat">11,212</span><span class="lens-label">raw scan events</span></div>
+              <div><span class="lens-stat">8</span><span class="lens-label">hubs covered</span></div>
+            </div>
+            <p class="lens-source">
+              Source: <code>bronze/shipment_events</code> &rarr; <code>silver/shipment/journeys</code> &rarr; <code>fct_shipments</code> mart with SLA flags.
+            </p>
+          </article>
+
+          <article class="lens-panel" data-lens="lastmile" role="tabpanel">
+            <div class="lens-questions">
+              <p class="eyebrow">Questions answered</p>
+              <ul>
+                <li>Which delivery agents are over- or under-utilized?</li>
+                <li>What is first-attempt success per agent / zone?</li>
+                <li>Where are repeat failures concentrated?</li>
+              </ul>
+            </div>
+            <div class="lens-stats">
+              <div><span class="lens-stat">60</span><span class="lens-label">agent shifts</span></div>
+              <div><span class="lens-stat">1,221</span><span class="lens-label">delivery attempts</span></div>
+              <div><span class="lens-stat">78%</span><span class="lens-label">first-attempt success</span></div>
+              <div><span class="lens-stat">3.99 / 5</span><span class="lens-label">avg customer rating</span></div>
+            </div>
+            <p class="lens-source">
+              Source: <code>bronze/delivery_events</code> &rarr; <code>silver/delivery/agent_shifts</code> &rarr; <code>fct_agent_daily</code> mart.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section embed-section" id="dashboard" aria-label="Embedded live dashboard">
+        <div class="section-copy">
+          <p class="eyebrow">Live demo</p>
+          <h2>The dashboard, right here.</h2>
+          <p>
+            Hosted on Hugging Face Spaces from this repository's Docker image. Loads the
+            same sample dataset shown above. Cold starts take ~30 seconds.
+          </p>
+          <p class="embed-actions">
+            <a class="button primary" href="https://huggingface.co/spaces/umukhija/logistics-data-platform" target="_blank" rel="noopener">
+              Open in full screen ↗
+            </a>
+          </p>
+        </div>
+        <div class="embed-frame">
+          <iframe
+            title="Logistics Data Platform &mdash; live dashboard"
+            src="https://umukhija-logistics-data-platform.hf.space"
+            loading="lazy"
+            allow="fullscreen"
+          ></iframe>
+        </div>
+      </section>
+
+      <section class="section how-section" id="how" aria-label="How it is built">
+        <div class="section-copy compact">
+          <p class="eyebrow">How it works</p>
+          <h2>From raw events to operating metrics.</h2>
+          <p>
+            Five surfaces, one contract. Each step has tests, each layer is queryable,
+            and the dashboard only reads from the warehouse.
+          </p>
+        </div>
+
         <div class="flow" aria-label="Data flow">
-          <div class="flow-node">Simulators</div>
-          <div class="flow-link"></div>
-          <div class="flow-node">Kafka</div>
-          <div class="flow-link"></div>
-          <div class="flow-node">Spark Bronze</div>
-          <div class="flow-link"></div>
-          <div class="flow-node">Silver jobs</div>
-          <div class="flow-link"></div>
-          <div class="flow-node">dbt + DuckDB</div>
-          <div class="flow-link"></div>
-          <div class="flow-node">Streamlit</div>
+          <div class="flow-node">
+            <span class="flow-step">1</span>
+            <strong>Simulators</strong>
+            <span>GPS, scans, and delivery events synthesized at production-realistic volumes.</span>
+          </div>
+          <div class="flow-node">
+            <span class="flow-step">2</span>
+            <strong>Kafka + Bronze</strong>
+            <span>Streaming ingest into immutable Bronze parquet via Spark Structured Streaming.</span>
+          </div>
+          <div class="flow-node">
+            <span class="flow-step">3</span>
+            <strong>Silver jobs</strong>
+            <span>Trip, journey, and shift reconstruction &mdash; idempotent, schema-tested.</span>
+          </div>
+          <div class="flow-node">
+            <span class="flow-step">4</span>
+            <strong>dbt + DuckDB</strong>
+            <span>Dimensional marts (<code>fct_trips</code>, <code>fct_shipments</code>, <code>fct_agent_daily</code>) with assertions.</span>
+          </div>
+          <div class="flow-node">
+            <span class="flow-step">5</span>
+            <strong>Streamlit</strong>
+            <span>Read-only operator view served from the warehouse, deployed via Docker.</span>
+          </div>
         </div>
+
         <div class="capability-grid">
           <article>
-            <h3>Operational domains</h3>
-            <p>Fleet telematics, shipment lifecycle events, and last-mile activity are modeled through shared contracts and layers.</p>
+            <h3>Streaming &amp; batch</h3>
+            <p>Kafka topics fed by simulators, consumed by Spark Structured Streaming into Bronze parquet; batch jobs reconstruct trips, journeys, and shifts with windowed logic and replay safety.</p>
           </article>
           <article>
-            <h3>Analytics engineering</h3>
-            <p>dbt converts source events into staging, intermediate, and mart models with tested fact and dimension tables.</p>
+            <h3>Dimensional modeling</h3>
+            <p>dbt models split into staging, intermediate, and mart layers. SLA flags, productivity flags, and time dimensions land in fact tables consumed directly by the dashboard.</p>
           </article>
           <article>
-            <h3>Quality and CI</h3>
-            <p>Automated checks validate data quality, model builds, Docker health, Compose config, and dashboard rendering.</p>
+            <h3>Data quality &amp; ops</h3>
+            <p>Schema, freshness, and business-rule checks emit JSON quality artifacts on every run. Docker, Compose, and CI verify the demo path end-to-end before any change ships.</p>
           </article>
         </div>
       </section>
 
-      <section class="section demo" id="demo" aria-label="Demo options">
-        <div class="section-copy compact">
-          <p class="eyebrow">Review paths</p>
-          <h2>Use the public site for a quick read and the dashboard for a live walkthrough.</h2>
+      <footer class="site-footer">
+        <div class="footer-grid">
+          <div>
+            <p class="eyebrow">Repository</p>
+            <a href="https://github.com/udaymukhija3/logistics-data-engineering" target="_blank" rel="noopener">
+              github.com/udaymukhija3/logistics-data-engineering
+            </a>
+            <p class="footer-note">Source, dbt models, simulators, Dockerfile, and tests.</p>
+          </div>
+          <div>
+            <p class="eyebrow">Build evidence</p>
+            <a href="https://github.com/udaymukhija3/logistics-data-engineering/actions/workflows/ci.yml?query=branch%3Amain" target="_blank" rel="noopener">
+              CI workflow runs
+            </a>
+            <p class="footer-note">Lint, tests, dbt build, Docker build, dashboard render check.</p>
+          </div>
+          <div>
+            <p class="eyebrow">Live dashboard</p>
+            <a href="https://huggingface.co/spaces/umukhija/logistics-data-platform" target="_blank" rel="noopener">
+              Hugging Face Space
+            </a>
+            <p class="footer-note">Streamlit app served from this repo's Docker image.</p>
+          </div>
         </div>
-        <div class="demo-grid">
-          <a class="demo-item" href="https://github.com/udaymukhija3/logistics-data-engineering">
-            <span class="demo-kicker">Technical review</span>
-            <strong>Repository and implementation</strong>
-            <span>Source code, sample data, Dockerfile, dbt models, tests, and documentation.</span>
-          </a>
-          <a
-            class="demo-item"
-            href="https://github.com/udaymukhija3/logistics-data-engineering/actions/workflows/ci.yml?query=branch%3Amain"
-          >
-            <span class="demo-kicker">Delivery confidence</span>
-            <strong>Automated build evidence</strong>
-            <span>Current checks covering the demo path, data models, Docker build, and dashboard rendering.</span>
-          </a>
-          <a
-            class="demo-item"
-            href="https://huggingface.co/spaces/umukhija/logistics-data-platform"
-          >
-            <span class="demo-kicker">Interactive walkthrough</span>
-            <strong>Launch the live dashboard</strong>
-            <span>Opens the hosted Streamlit dashboard on Hugging Face Spaces, backed by the bundled sample dataset.</span>
-          </a>
-        </div>
-      </section>
+        <p class="footer-credit">Built by Uday Mukhija &middot; data engineering portfolio</p>
+      </footer>
     </main>
+
+    <script>
+      (function () {
+        var tabs = document.querySelectorAll('.lens-tab');
+        var panels = document.querySelectorAll('.lens-panel');
+        tabs.forEach(function (tab) {
+          tab.addEventListener('click', function () {
+            var lens = tab.getAttribute('data-lens');
+            tabs.forEach(function (t) {
+              var active = t === tab;
+              t.classList.toggle('is-active', active);
+              t.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            panels.forEach(function (p) {
+              p.classList.toggle('is-active', p.getAttribute('data-lens') === lens);
+            });
+          });
+        });
+      })();
+    </script>
   </body>
 </html>

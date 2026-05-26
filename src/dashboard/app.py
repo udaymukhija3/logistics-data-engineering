@@ -7,6 +7,7 @@ Run with: streamlit run src/dashboard/app.py
 """
 
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -27,7 +28,48 @@ st.set_page_config(
 ROOT_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = ROOT_DIR / "data"
 SAMPLE_DIR = DATA_DIR / "sample"
-MANIFEST_PATH = SAMPLE_DIR / "manifest.json"
+DATA_MODE = os.getenv("LOGISTICS_DATA_MODE", "sample").strip().lower()
+
+CORE_DATASETS = (
+    "bronze/vehicle_positions",
+    "bronze/shipment_events",
+    "bronze/delivery_events",
+    "silver/fleet/trips",
+    "silver/shipment/journeys",
+    "silver/delivery/agent_shifts",
+)
+
+PARQUET_DATASETS = (
+    ("Bronze", "Vehicle Positions", "bronze/vehicle_positions", "bronze.vehicle_positions"),
+    ("Bronze", "Shipment Events", "bronze/shipment_events", "bronze.shipment_events"),
+    ("Bronze", "Delivery Events", "bronze/delivery_events", "bronze.delivery_events"),
+    ("Silver", "Trips", "silver/fleet/trips", "silver.fleet.trips"),
+    ("Silver", "Journeys", "silver/shipment/journeys", "silver.shipment.journeys"),
+    ("Silver", "Agent Shifts", "silver/delivery/agent_shifts", "silver.delivery.agent_shifts"),
+    (
+        "Silver",
+        "Zone Performance",
+        "silver/delivery/zone_performance",
+        "silver.delivery.zone_performance",
+    ),
+)
+
+WAREHOUSE_RELATIONS = (
+    "main_marts.fct_trips",
+    "main_marts.fct_driver_performance",
+    "main_marts.fct_shipments",
+    "main_marts.fct_hub_daily",
+    "main_marts.fct_agent_daily",
+    "main_marts.fct_zone_daily",
+    "main_marts.dim_hubs",
+    "main_marts.dim_time",
+)
+
+CORE_MART_RELATIONS = (
+    "main_marts.fct_trips",
+    "main_marts.fct_shipments",
+    "main_marts.fct_agent_daily",
+)
 
 PALETTE = {
     "ink": "#102a43",
@@ -42,34 +84,56 @@ PALETTE = {
 }
 
 
-# Use sample data if live data doesn't exist
-def _resolve_dir(subpath: str) -> Path:
-    live = DATA_DIR / subpath
-    sample = SAMPLE_DIR / subpath
-    if live.exists() and any(live.rglob("*.parquet")):
-        return live
-    return sample
+def _has_parquet(path: Path) -> bool:
+    return path.exists() and any(path.rglob("*.parquet"))
 
 
-BRONZE_DIR_VEHICLES = _resolve_dir("bronze/vehicle_positions")
-BRONZE_DIR_SHIPMENTS = _resolve_dir("bronze/shipment_events")
-BRONZE_DIR_DELIVERY = _resolve_dir("bronze/delivery_events")
-SILVER_DIR_TRIPS = _resolve_dir("silver/fleet/trips")
-SILVER_DIR_JOURNEYS = _resolve_dir("silver/shipment/journeys")
-SILVER_DIR_SHIFTS = _resolve_dir("silver/delivery/agent_shifts")
+def _resolve_data_root(mode: str) -> tuple[Path, str]:
+    normalized = mode if mode in {"sample", "live", "auto"} else "sample"
+    if normalized == "sample":
+        return SAMPLE_DIR, "sample"
+    if normalized == "live":
+        return DATA_DIR, "live"
 
-USING_SAMPLE = str(SAMPLE_DIR) in str(BRONZE_DIR_VEHICLES)
-
-
-def _resolve_quality_dir() -> Path:
-    live = DATA_DIR / "quality_reports"
-    sample = SAMPLE_DIR / "quality_reports"
-    if live.exists() and any(live.glob("*.json")):
-        return live
-    return sample
+    live_ready = all(_has_parquet(DATA_DIR / subpath) for subpath in CORE_DATASETS)
+    if live_ready:
+        return DATA_DIR, "live"
+    return SAMPLE_DIR, "sample"
 
 
-QUALITY_DIR = _resolve_quality_dir()
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
+
+
+DATA_ROOT, EFFECTIVE_MODE = _resolve_data_root(DATA_MODE)
+MANIFEST_PATH = DATA_ROOT / "manifest.json"
+
+
+def _resolve_warehouse_path(data_root: Path) -> Path:
+    override = os.getenv("LOGISTICS_DUCKDB_PATH")
+    if override:
+        return Path(override)
+    bundled = data_root / "warehouse" / "logistics.duckdb"
+    if bundled.exists():
+        return bundled
+    return DATA_DIR / "warehouse" / "logistics.duckdb"
+
+
+WAREHOUSE_DB_PATH = _resolve_warehouse_path(DATA_ROOT)
+
+
+BRONZE_DIR_VEHICLES = DATA_ROOT / "bronze" / "vehicle_positions"
+BRONZE_DIR_SHIPMENTS = DATA_ROOT / "bronze" / "shipment_events"
+BRONZE_DIR_DELIVERY = DATA_ROOT / "bronze" / "delivery_events"
+SILVER_DIR_TRIPS = DATA_ROOT / "silver" / "fleet" / "trips"
+SILVER_DIR_JOURNEYS = DATA_ROOT / "silver" / "shipment" / "journeys"
+SILVER_DIR_SHIFTS = DATA_ROOT / "silver" / "delivery" / "agent_shifts"
+
+USING_SAMPLE = EFFECTIVE_MODE == "sample"
+QUALITY_DIR = DATA_ROOT / "quality_reports"
 
 
 def inject_theme():
@@ -254,6 +318,115 @@ def load_latest_quality_report() -> dict:
     return json.loads(latest.read_text(encoding="utf-8"))
 
 
+@st.cache_data(ttl=300)
+def load_duckdb_query(query: str) -> pd.DataFrame:
+    if not WAREHOUSE_DB_PATH.exists():
+        return pd.DataFrame()
+
+    try:
+        import duckdb
+
+        with duckdb.connect(str(WAREHOUSE_DB_PATH), read_only=True) as conn:
+            return conn.execute(query).fetchdf()
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_scalar(query: str, default: float | int | None = 0):
+    df = load_duckdb_query(query)
+    if df.empty:
+        return default
+
+    value = df.iloc[0, 0]
+    if pd.isna(value):
+        return default
+    return value
+
+
+@st.cache_data(ttl=300)
+def load_warehouse_relation(relation_name: str, limit: int | None = None) -> pd.DataFrame:
+    if relation_name not in WAREHOUSE_RELATIONS:
+        return pd.DataFrame()
+
+    query = f"select * from {relation_name}"
+    if limit is not None:
+        query += f" limit {int(limit)}"
+
+    return load_duckdb_query(query)
+
+
+@st.cache_data(ttl=300)
+def load_warehouse_inventory() -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+
+    for relation_name in WAREHOUSE_RELATIONS:
+        row_count = int(load_scalar(f"select count(*) from {relation_name}", default=0) or 0)
+        rows.append(
+            {
+                "Layer": "Gold",
+                "Dataset": relation_name.split(".", 1)[1],
+                "Rows": row_count,
+                "Path": relation_name,
+                "Status": "Ready" if row_count > 0 else "Missing",
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=300)
+def load_pipeline_inventory() -> pd.DataFrame:
+    manifest = load_manifest().get("datasets", {})
+    rows: list[dict[str, object]] = []
+
+    for layer_name, dataset_name, relative_path, manifest_key in PARQUET_DATASETS:
+        dataset_path = DATA_ROOT / relative_path
+        manifest_rows = manifest.get(manifest_key, {}).get("rows")
+        row_count = int(manifest_rows) if manifest_rows is not None else len(load_parquet(dataset_path))
+        rows.append(
+            {
+                "Layer": layer_name,
+                "Dataset": dataset_name,
+                "Rows": row_count,
+                "Path": _display_path(dataset_path),
+                "Status": "Ready" if row_count > 0 else "Missing",
+            }
+        )
+
+    warehouse_inventory = load_warehouse_inventory()
+    if not warehouse_inventory.empty:
+        rows.extend(warehouse_inventory.to_dict("records"))
+
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=300)
+def load_warehouse_kpis() -> dict[str, float | int]:
+    trip_distance = load_scalar(
+        "select coalesce(sum(total_distance_km), 0) from main_marts.fct_trips", default=0
+    )
+    sla_met_rate = load_scalar(
+        "select coalesce(avg(sla_met_flag) * 100, 0) from main_marts.fct_shipments", default=0
+    )
+    productive_agent_rate = load_scalar(
+        "select coalesce(avg(is_productive_flag) * 100, 0) from main_marts.fct_agent_daily",
+        default=0,
+    )
+
+    return {
+        "trip_rows": int(load_scalar("select count(*) from main_marts.fct_trips", default=0) or 0),
+        "shipment_rows": int(
+            load_scalar("select count(*) from main_marts.fct_shipments", default=0) or 0
+        ),
+        "agent_daily_rows": int(
+            load_scalar("select count(*) from main_marts.fct_agent_daily", default=0) or 0
+        ),
+        "trip_distance_km": float(trip_distance or 0),
+        "sla_met_rate": float(sla_met_rate or 0),
+        "productive_agent_rate": float(productive_agent_rate or 0),
+    }
+
+
 def _alias_columns(df: pd.DataFrame, alias_map: dict[str, list[str]]) -> pd.DataFrame:
     """Backfill canonical column names from known source aliases."""
     if df.empty:
@@ -347,133 +520,117 @@ def show_overview():
     manifest = load_manifest()
     quality_report = load_latest_quality_report()
     quality_summary = quality_report.get("summary", {})
-    freshness = manifest.get("generated_at", "Live stream")
+    warehouse_kpis = load_warehouse_kpis()
+    pipeline_inventory = load_pipeline_inventory()
+    freshness = manifest.get("generated_at") or quality_report.get("run_time", "Unavailable")
 
     render_page_header(
         "Operations Control Tower",
-        "A recruiter-ready walkthrough of a logistics data platform spanning simulators, streaming ingestion, batch reconstruction, dbt marts, quality automation, and interactive analytics.",
+        "One view of fleet movement, shipment SLAs, last-mile capacity, and the data quality behind them &mdash; computed from a bundled dataset of 500 shipments, 30 vehicles, and 60 agent shifts across 8 hubs.",
         [
-            "Sample bundle" if USING_SAMPLE else "Live pipeline",
-            f"{quality_summary.get('passed', 0)}/{quality_summary.get('total_checks', 0)} quality checks",
-            "DuckDB + dbt buildable",
-            f"Updated {freshness}",
+            f"{warehouse_kpis['shipment_rows']} shipments",
+            f"{warehouse_kpis['trip_rows']} trips",
+            f"{warehouse_kpis['agent_daily_rows']} agent days",
+            f"{quality_summary.get('passed', 0)}/{quality_summary.get('total_checks', 0)} quality checks passing",
         ],
     )
 
-    if USING_SAMPLE:
-        st.info(
-            "Viewing pre-generated sample data. "
-            "Run `make simulate-demo && make batch` to see live pipeline data, or `make sample-data && make dbt-build` for the verified portfolio path."
-        )
-
     positions = load_parquet(BRONZE_DIR_VEHICLES)
-    shipments = load_parquet(BRONZE_DIR_SHIPMENTS)
-    deliveries = load_parquet(BRONZE_DIR_DELIVERY)
-    trips = normalize_trip_schema(load_parquet(SILVER_DIR_TRIPS))
-    journeys = load_parquet(SILVER_DIR_JOURNEYS)
-    shifts = load_parquet(SILVER_DIR_SHIFTS)
+    marts_ready = warehouse_kpis["trip_rows"] > 0 or warehouse_kpis["shipment_rows"] > 0
 
-    render_section_label("Platform Snapshot")
+    render_section_label("Operations at a glance")
     snapshot_cols = st.columns(3)
     with snapshot_cols[0]:
         render_domain_snapshot(
-            "Fleet Telematics",
+            "Fleet on the road",
             format_compact_number(positions["vehicle_id"].nunique() if len(positions) else 0),
-            "Vehicles streaming GPS context, speed, and route behavior into the platform.",
+            "Vehicles whose GPS pings rolled up into reconstructed trips for utilization tracking.",
         )
     with snapshot_cols[1]:
         render_domain_snapshot(
-            "Shipment Tracking",
-            format_compact_number(shipments["shipment_id"].nunique() if len(shipments) else 0),
-            "Shipment lifecycle events modeled from origin handoff through final-mile delivery.",
+            "Trips reconstructed",
+            format_compact_number(warehouse_kpis["trip_rows"]),
+            "Discrete vehicle trips inferred from telemetry, with distance, duration, and route efficiency.",
         )
     with snapshot_cols[2]:
         render_domain_snapshot(
-            "Last-Mile Delivery",
-            format_compact_number(deliveries["agent_id"].nunique() if len(deliveries) else 0),
-            "Agent productivity, delivery outcomes, and quality signals tied back to zones.",
+            "Shipments tracked",
+            format_compact_number(warehouse_kpis["shipment_rows"]),
+            "End-to-end shipment journeys with SLA outcome, hop count, and delivery attempts.",
         )
 
-    # KPI row
-    render_section_label("Service Level KPIs")
+    render_section_label("Key operational KPIs")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
-        st.metric(
-            "Vehicles Tracked", len(positions["vehicle_id"].unique()) if len(positions) else 0
-        )
+        st.metric("Trips", warehouse_kpis["trip_rows"])
     with col2:
-        st.metric("Shipments", len(shipments["shipment_id"].unique()) if len(shipments) else 0)
+        st.metric("Shipments", warehouse_kpis["shipment_rows"])
     with col3:
-        delivered = (
-            len(deliveries[deliveries["event_type"] == "DELIVERED"]) if len(deliveries) else 0
-        )
-        st.metric("Deliveries", delivered)
+        st.metric("Agent days", warehouse_kpis["agent_daily_rows"])
     with col4:
-        if len(deliveries) and "event_type" in deliveries.columns:
-            total = len(deliveries)
-            rate = delivered / total * 100 if total else 0
-            st.metric("Success Rate", f"{rate:.1f}%")
-        else:
-            st.metric("Success Rate", "N/A")
+        st.metric("SLA met", f"{warehouse_kpis['sla_met_rate']:.1f}%")
     with col5:
-        st.metric("Trips Reconstructed", len(trips) if len(trips) else 0)
+        st.metric("Distance", f"{warehouse_kpis['trip_distance_km']:.0f} km")
     with col6:
-        if len(journeys) and "sla_status" in journeys.columns:
-            met = len(journeys[journeys["sla_status"] == "MET"])
-            total_sla = len(journeys[journeys["sla_status"].isin(["MET", "BREACHED"])])
-            sla_rate = met / total_sla * 100 if total_sla else 0
-            st.metric("SLA Compliance", f"{sla_rate:.1f}%")
-        else:
-            st.metric("SLA Compliance", "N/A")
+        st.metric("Productive agents", f"{warehouse_kpis['productive_agent_rate']:.1f}%")
 
-    # Data pipeline summary
-    render_section_label("Pipeline Coverage")
+    render_section_label("Run readiness")
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.subheader("Data Pipeline Layers")
-        layer_data = pd.DataFrame(
-            {
-                "Layer": [
-                    "Bronze - Vehicle Positions",
-                    "Bronze - Shipment Events",
-                    "Bronze - Delivery Events",
-                    "Silver - Trips",
-                    "Silver - Journeys",
-                    "Silver - Agent Shifts",
-                ],
-                "Records": [
-                    len(positions),
-                    len(shipments),
-                    len(deliveries),
-                    len(trips),
-                    len(journeys),
-                    len(shifts),
-                ],
-                "Status": ["Active"] * 6,
-            }
-        )
-        st.dataframe(layer_data, width="stretch", hide_index=True)
+        st.subheader("Pipeline Inventory")
+        st.dataframe(pipeline_inventory, use_container_width=True, hide_index=True)
 
     with col_right:
-        st.subheader("Event Distribution")
-        if len(shipments) and "event_type" in shipments.columns:
-            event_counts = shipments["event_type"].value_counts().head(10)
-            fig = px.bar(
-                x=event_counts.values,
-                y=event_counts.index,
-                orientation="h",
-                labels={"x": "Count", "y": "Event Type"},
-                color_discrete_sequence=[PALETTE["accent"]],
-            )
-            style_figure(fig, height=300)
-            st.plotly_chart(fig, width="stretch")
+        st.subheader("Operator Notes")
+        notes = pd.DataFrame(
+            {
+                "Control": [
+                    "Selected mode",
+                    "Effective data root",
+                    "Warehouse database",
+                    "Warehouse ready",
+                    "Quality report path",
+                ],
+                "Value": [
+                    "Sample" if USING_SAMPLE else "Live",
+                    _display_path(DATA_ROOT),
+                    _display_path(WAREHOUSE_DB_PATH),
+                    "Yes" if marts_ready else "No",
+                    _display_path(QUALITY_DIR),
+                ],
+            }
+        )
+        st.dataframe(notes, use_container_width=True, hide_index=True)
 
-    # Map
+        if not marts_ready:
+            st.error(
+                "Core marts are empty or missing. Re-run `make demo-build` before using this dashboard as a walkthrough."
+            )
+        elif not quality_report:
+            st.warning("No quality artifact was found for the selected data root.")
+        else:
+            st.success("Warehouse marts and quality artifacts are both available for the selected mode.")
+
+    render_section_label("Core Mart Preview")
+    preview_tabs = st.tabs(["Trips", "Shipments", "Agent Daily"])
+    preview_relations = [
+        "main_marts.fct_trips",
+        "main_marts.fct_shipments",
+        "main_marts.fct_agent_daily",
+    ]
+    for tab, relation_name in zip(preview_tabs, preview_relations, strict=False):
+        with tab:
+            preview = load_warehouse_relation(relation_name, limit=10)
+            if preview.empty:
+                st.warning(f"{relation_name} is not available in the warehouse yet.")
+            else:
+                st.dataframe(preview, use_container_width=True, hide_index=True)
+
     if len(positions) and "latitude" in positions.columns:
-        render_section_label("Geospatial Footprint")
-        st.subheader("Fleet Positions Across India")
+        render_section_label("Fleet Footprint")
+        st.subheader("Vehicle Positions")
         sample = positions.sample(min(2000, len(positions)))
         fig = px.scatter_mapbox(
             sample,
@@ -487,7 +644,99 @@ def show_overview():
             height=500,
         )
         style_figure(fig, height=500)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def show_pipeline_status():
+    quality_report = load_latest_quality_report()
+    quality_summary = quality_report.get("summary", {})
+    inventory = load_pipeline_inventory()
+    warehouse_inventory = load_warehouse_inventory()
+
+    render_page_header(
+        "Pipeline Status",
+        "A read-only operator panel for the selected data root. It shows which parquet datasets and marts are actually populated, where the artifacts live, and whether quality ran.",
+        [
+            "Parquet inventory",
+            "DuckDB marts",
+            f"Mode: {'sample' if USING_SAMPLE else 'live'}",
+        ],
+    )
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Ready Relations", int((inventory["Status"] == "Ready").sum()) if not inventory.empty else 0)
+    with col2:
+        st.metric("Missing Relations", int((inventory["Status"] == "Missing").sum()) if not inventory.empty else 0)
+    with col3:
+        st.metric("Quality Passed", quality_summary.get("passed", 0))
+    with col4:
+        st.metric("Quality Failed", quality_summary.get("failed", 0))
+
+    st.subheader("Selected Data Root")
+    st.code(_display_path(DATA_ROOT), language=None)
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Parquet + Warehouse Inventory")
+        st.dataframe(inventory, use_container_width=True, hide_index=True)
+    with right:
+        st.subheader("Core Mart Status")
+        core_inventory = warehouse_inventory[
+            warehouse_inventory["Path"].isin(CORE_MART_RELATIONS)
+        ].reset_index(drop=True)
+        st.dataframe(core_inventory, use_container_width=True, hide_index=True)
+
+        failed_checks = [
+            check for check in quality_report.get("checks", []) if not check.get("success", False)
+        ]
+        if failed_checks:
+            st.error("The latest quality run contains failing checks.")
+            st.dataframe(pd.DataFrame(failed_checks), use_container_width=True, hide_index=True)
+        elif quality_report:
+            st.success("The latest quality run is clean for the selected data root.")
+        else:
+            st.warning("No quality report found for the selected data root.")
+
+
+def show_warehouse_explorer():
+    render_page_header(
+        "Warehouse Explorer",
+        "Direct previews of the DuckDB models that make the demo credible. Use this to inspect row counts, columns, and example records from the built marts.",
+        ["DuckDB", "dbt marts", "Read-only preview"],
+    )
+
+    warehouse_inventory = load_warehouse_inventory()
+    if warehouse_inventory.empty:
+        st.warning(
+            "No warehouse relations are available. Run `make demo-build` or `make dbt-build DBT_DATA_MODE=sample` first."
+        )
+        return
+
+    st.dataframe(warehouse_inventory, use_container_width=True, hide_index=True)
+
+    relation_name = st.selectbox(
+        "Inspect relation",
+        list(warehouse_inventory["Path"]),
+        index=0,
+    )
+    preview = load_warehouse_relation(relation_name, limit=100)
+
+    metric_left, metric_right, metric_third = st.columns(3)
+    with metric_left:
+        selected_row_count = int(
+            load_scalar(f"select count(*) from {relation_name}", default=0) or 0
+        )
+        st.metric("Rows", selected_row_count)
+    with metric_right:
+        st.metric("Columns", len(preview.columns))
+    with metric_third:
+        st.metric("Warehouse DB", _display_path(WAREHOUSE_DB_PATH))
+
+    if preview.empty:
+        st.warning(f"{relation_name} is empty.")
+    else:
+        st.dataframe(preview, use_container_width=True, hide_index=True)
 
 
 def show_fleet_dashboard():
@@ -533,7 +782,7 @@ def show_fleet_dashboard():
             labels={"speed_kmh": "Speed (km/h)"},
         )
         style_figure(fig, height=350)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
     with col_right:
         st.subheader("Vehicle Type Breakdown")
@@ -547,7 +796,7 @@ def show_fleet_dashboard():
                 color_discrete_sequence=px.colors.qualitative.Set2,
             )
             style_figure(fig, height=350)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 
     # Trip analysis
     if len(trips) > 0:
@@ -565,7 +814,7 @@ def show_fleet_dashboard():
             )
             fig.update_layout(title="Trip Distance Distribution")
             style_figure(fig, height=300)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
             fig = px.scatter(
@@ -578,7 +827,7 @@ def show_fleet_dashboard():
             )
             fig.update_layout(title="Distance vs Duration")
             style_figure(fig, height=300)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 
     # Map
     st.subheader("Vehicle Positions")
@@ -595,7 +844,7 @@ def show_fleet_dashboard():
         height=500,
     )
     style_figure(fig, height=500)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def show_shipment_dashboard():
@@ -641,7 +890,7 @@ def show_shipment_dashboard():
             )
             fig.update_layout(xaxis_tickangle=-45)
             style_figure(fig, height=350)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 
     with col_right:
         st.subheader("Hub Activity")
@@ -655,7 +904,7 @@ def show_shipment_dashboard():
                 color_discrete_sequence=[PALETTE["accent_alt"]],
             )
             style_figure(fig, height=350)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 
     if len(journeys) > 0:
         st.markdown("---")
@@ -673,7 +922,7 @@ def show_shipment_dashboard():
                     color_discrete_map=colors,
                 )
                 style_figure(fig, height=300)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
 
         with col2:
             st.subheader("SLA Status")
@@ -692,7 +941,7 @@ def show_shipment_dashboard():
                     color_discrete_map=sla_colors,
                 )
                 style_figure(fig, height=300)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
 
 
 def show_delivery_dashboard():
@@ -746,20 +995,17 @@ def show_delivery_dashboard():
                 color_discrete_map=colors,
             )
             style_figure(fig, height=350)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 
     with col_right:
         st.subheader("Rating Distribution")
         if "customer_rating" in events.columns:
             ratings = events["customer_rating"].dropna()
             fig = px.histogram(
-                ratings,
-                nbins=5,
-                labels={"value": "Rating"},
-                color_discrete_sequence=[PALETTE["accent"]],
+                ratings, nbins=5, labels={"value": "Rating"}, color_discrete_sequence=[PALETTE["accent"]]
             )
             style_figure(fig, height=350)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
 
     # Zone performance
     if "zone_id" in events.columns:
@@ -775,7 +1021,7 @@ def show_delivery_dashboard():
             .reset_index()
         )
         zone_stats["avg_rating"] = zone_stats["avg_rating"].round(2)
-        st.dataframe(zone_stats, width="stretch", hide_index=True)
+        st.dataframe(zone_stats, use_container_width=True, hide_index=True)
 
     # Top agents
     if len(shifts) > 0 and "successful_deliveries" in shifts.columns:
@@ -790,14 +1036,18 @@ def show_delivery_dashboard():
                 "avg_customer_rating",
             ]
         ].reset_index(drop=True)
-        st.dataframe(top, width="stretch", hide_index=True)
+        st.dataframe(top, use_container_width=True, hide_index=True)
 
 
 def show_data_quality():
     render_page_header(
         "Data Quality",
-        "Automated contract checks spanning Bronze ingestion and Silver business entities, with durable JSON artifacts for proof and debugging.",
-        ["Bronze + Silver coverage", "JSON reports", "DuckDB or Spark backend"],
+        "Automated contract checks spanning Bronze ingestion and Silver business entities, with durable JSON artifacts that the demo can point to directly.",
+        [
+            "Bronze + Silver coverage",
+            "JSON reports",
+            f"Root: {_display_path(DATA_ROOT)}",
+        ],
     )
 
     if not QUALITY_DIR.exists():
@@ -825,17 +1075,24 @@ def show_data_quality():
     else:
         st.error("Some quality checks failed - see details below.")
 
+    st.caption(f"Latest report loaded from `{_display_path(QUALITY_DIR)}`")
+
     checks = report.get("checks", [])
     if checks:
         df = pd.DataFrame(checks)
-        st.dataframe(df, width="stretch", hide_index=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
 
 def show_architecture():
     render_page_header(
         "Platform Architecture",
-        "An end-to-end data engineering design combining simulation, streaming, batch processing, analytics engineering, and operational quality controls.",
+        "The intended full-stack architecture plus the smaller verified demo path that keeps this repo runnable and demonstrable on a laptop.",
         ["Kafka", "Spark", "dbt", "Airflow", "DuckDB", "Streamlit"],
+    )
+
+    st.info(
+        "Verified demo path: sample parquet -> DuckDB source views -> dbt marts -> Streamlit. "
+        "Kafka, Spark, and Airflow remain available for live-stack walkthroughs but are not required for the credible demo path."
     )
 
     st.subheader("System Overview")
@@ -852,8 +1109,8 @@ def show_architecture():
     | Delivery App |--+            +----------+                    |
     | (Agents)     |                                               v
     +--------------+                                      +--------+-----------+
-                                                          |   Bronze parquet   |
-                      ANALYTICS         GOLD              |   (event-level)    |
+                                                          |   Delta Lake       |
+                      ANALYTICS         GOLD              |   Bronze Layer     |
                     +----------+   +-----------+          +--------+-----------+
                     |          |   |           |                    |
                     |Streamlit |<--|  DuckDB   |<--- dbt ---+      v
@@ -863,10 +1120,10 @@ def show_architecture():
                                                             | |  Reconstruct) |
                     +----------+   +-----------+            | +----+-----------+
                     | Jupyter  |<--|  Airflow  |            |      |
-                    | Notebook |   | (Daily DAG)|-----------+      v
+                    | Notebook |   | (2AM DAG) |------------+      v
                     +----------+   +-----------+              +----+-----------+
-                                                              | Silver parquet |
-                                                              | (entities/agg) |
+                                                              | Delta Lake     |
+                                                              | Silver Layer   |
                                                               +----------------+
     """,
         language=None,
@@ -896,7 +1153,7 @@ def show_architecture():
                     "Apache Kafka",
                     "Spark Structured Streaming",
                     "Apache Spark 3.5",
-                    "Parquet on disk (Bronze + Silver)",
+                    "Delta Lake (ACID)",
                     "dbt 1.7+",
                     "Apache Airflow",
                     "Custom Framework + dbt Tests",
@@ -906,7 +1163,7 @@ def show_architecture():
                 ],
             }
         )
-        st.dataframe(tech, width="stretch", hide_index=True)
+        st.dataframe(tech, use_container_width=True, hide_index=True)
 
     with col2:
         st.subheader("Data Model (Star Schema)")
@@ -944,7 +1201,7 @@ def show_architecture():
                 ],
             }
         )
-        st.dataframe(model, width="stretch", hide_index=True)
+        st.dataframe(model, use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.subheader("Medallion Architecture")
@@ -957,7 +1214,7 @@ def show_architecture():
             "- Schema validation\n"
             "- Ingestion metadata\n"
             "- Partitioned by date\n"
-            "- Parquet on disk"
+            "- Delta Lake format"
         )
 
     with col2:
@@ -1020,6 +1277,8 @@ def main():
 
     pages = {
         "Overview": show_overview,
+        "Pipeline Status": show_pipeline_status,
+        "Warehouse Explorer": show_warehouse_explorer,
         "Fleet Telematics": show_fleet_dashboard,
         "Shipment Tracking": show_shipment_dashboard,
         "Last-Mile Delivery": show_delivery_dashboard,
@@ -1034,11 +1293,13 @@ def main():
     st.sidebar.markdown("### About")
     st.sidebar.info(
         "**Unified Logistics Data Platform**\n\n"
-        "End-to-end data engineering project:\n"
-        "Kafka | Spark | Parquet | dbt | Airflow | DuckDB"
+        "Verified demo path:\n"
+        "Parquet | DuckDB | dbt | Quality Reports | Streamlit"
     )
-    data_mode = "Sample Data" if USING_SAMPLE else "Live Pipeline"
+    data_mode = "Sample bundle" if USING_SAMPLE else "Live parquet"
     st.sidebar.caption(f"Data mode: {data_mode}")
+    st.sidebar.caption(f"Data root: {_display_path(DATA_ROOT)}")
+    st.sidebar.caption(f"Warehouse: {_display_path(WAREHOUSE_DB_PATH)}")
 
 
 if __name__ == "__main__":
