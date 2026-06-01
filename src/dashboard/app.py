@@ -472,7 +472,7 @@ def render_page_header(title: str, description: str, chips: list[str] | None = N
     st.markdown(
         f"""
         <section class="hero-card">
-            <div class="hero-kicker">Unified Logistics Platform</div>
+            <div class="hero-kicker">Running demo</div>
             <div class="hero-title">{title}</div>
             <div class="hero-copy">{description}</div>
             <div class="hero-chip-row">{chip_markup}</div>
@@ -526,7 +526,7 @@ def show_overview():
 
     render_page_header(
         "Operations Control Tower",
-        "One view of fleet movement, shipment SLAs, last-mile capacity, and the data quality behind them &mdash; computed from a bundled dataset of 500 shipments, 30 vehicles, and 60 agent shifts across 8 hubs.",
+        "Fleet, shipment, delivery, warehouse, and quality metrics computed from the repo's sample data.",
         [
             f"{warehouse_kpis['shipment_rows']} shipments",
             f"{warehouse_kpis['trip_rows']} trips",
@@ -544,19 +544,19 @@ def show_overview():
         render_domain_snapshot(
             "Fleet on the road",
             format_compact_number(positions["vehicle_id"].nunique() if len(positions) else 0),
-            "Vehicles whose GPS pings rolled up into reconstructed trips for utilization tracking.",
+            "GPS pings rolled into trips.",
         )
     with snapshot_cols[1]:
         render_domain_snapshot(
             "Trips reconstructed",
             format_compact_number(warehouse_kpis["trip_rows"]),
-            "Discrete vehicle trips inferred from telemetry, with distance, duration, and route efficiency.",
+            "Distance, duration, route efficiency.",
         )
     with snapshot_cols[2]:
         render_domain_snapshot(
             "Shipments tracked",
             format_compact_number(warehouse_kpis["shipment_rows"]),
-            "End-to-end shipment journeys with SLA outcome, hop count, and delivery attempts.",
+            "Journey, SLA, and delivery outcome.",
         )
 
     render_section_label("Key operational KPIs")
@@ -575,15 +575,15 @@ def show_overview():
     with col6:
         st.metric("Productive agents", f"{warehouse_kpis['productive_agent_rate']:.1f}%")
 
-    render_section_label("Run readiness")
+    render_section_label("Run evidence")
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.subheader("Pipeline Inventory")
+        st.subheader("Pipeline inventory")
         st.dataframe(pipeline_inventory, use_container_width=True, hide_index=True)
 
     with col_right:
-        st.subheader("Operator Notes")
+        st.subheader("Runtime")
         notes = pd.DataFrame(
             {
                 "Control": [
@@ -606,14 +606,14 @@ def show_overview():
 
         if not marts_ready:
             st.error(
-                "Core marts are empty or missing. Re-run `make demo-build` before using this dashboard as a walkthrough."
+                "Core marts are empty or missing. Re-run `make demo-build`."
             )
         elif not quality_report:
             st.warning("No quality artifact was found for the selected data root.")
         else:
-            st.success("Warehouse marts and quality artifacts are both available for the selected mode.")
+            st.success("Warehouse marts and quality artifacts are available.")
 
-    render_section_label("Core Mart Preview")
+    render_section_label("Mart preview")
     preview_tabs = st.tabs(["Trips", "Shipments", "Agent Daily"])
     preview_relations = [
         "main_marts.fct_trips",
@@ -655,7 +655,7 @@ def show_pipeline_status():
 
     render_page_header(
         "Pipeline Status",
-        "A read-only operator panel for the selected data root. It shows which parquet datasets and marts are actually populated, where the artifacts live, and whether quality ran.",
+        "Parquet datasets, dbt marts, and quality checks for the selected data root.",
         [
             "Parquet inventory",
             "DuckDB marts",
@@ -702,7 +702,7 @@ def show_pipeline_status():
 def show_warehouse_explorer():
     render_page_header(
         "Warehouse Explorer",
-        "Direct previews of the DuckDB models that make the demo credible. Use this to inspect row counts, columns, and example records from the built marts.",
+        "DuckDB model row counts, columns, and sample records.",
         ["DuckDB", "dbt marts", "Read-only preview"],
     )
 
@@ -742,7 +742,7 @@ def show_warehouse_explorer():
 def show_fleet_dashboard():
     render_page_header(
         "Fleet Telematics",
-        "Vehicle telemetry, route reconstruction, and driver behavior analytics built to showcase operational observability at fleet scale.",
+        "GPS events reconstructed into trips and fleet metrics.",
         ["GPS traces", "Trip reconstruction", "Driver performance"],
     )
 
@@ -850,7 +850,7 @@ def show_fleet_dashboard():
 def show_shipment_dashboard():
     render_page_header(
         "Shipment Tracking",
-        "Journey-level visibility across first mile, hub operations, and last-mile SLA performance.",
+        "Hub scans reconstructed into shipment journeys and SLA status.",
         ["Lifecycle scans", "Hub throughput", "SLA monitoring"],
     )
 
@@ -947,7 +947,7 @@ def show_shipment_dashboard():
 def show_delivery_dashboard():
     render_page_header(
         "Last-Mile Delivery",
-        "Agent efficiency, zone-level performance, and customer experience metrics tied back to operational execution.",
+        "Delivery events aggregated into agent and zone metrics.",
         ["Agent shifts", "Zone analytics", "Customer satisfaction"],
     )
 
@@ -1042,7 +1042,7 @@ def show_delivery_dashboard():
 def show_data_quality():
     render_page_header(
         "Data Quality",
-        "Automated contract checks spanning Bronze ingestion and Silver business entities, with durable JSON artifacts that the demo can point to directly.",
+        "Schema, freshness, and business-rule checks with JSON artifacts.",
         [
             "Bronze + Silver coverage",
             "JSON reports",
@@ -1085,88 +1085,35 @@ def show_data_quality():
 
 def show_architecture():
     render_page_header(
-        "Platform Architecture",
-        "The intended full-stack architecture plus the smaller verified demo path that keeps this repo runnable and demonstrable on a laptop.",
+        "Engineering",
+        "What runs, what is modeled, and where each metric comes from.",
         ["Kafka", "Spark", "dbt", "Airflow", "DuckDB", "Streamlit"],
     )
 
-    st.info(
-        "Verified demo path: sample parquet -> DuckDB source views -> dbt marts -> Streamlit. "
-        "Kafka, Spark, and Airflow remain available for live-stack walkthroughs but are not required for the credible demo path."
+    st.subheader("Runnable demo path")
+    st.markdown(
+        "Sample parquet -> DuckDB source views -> dbt marts -> quality reports -> Streamlit."
     )
-
-    st.subheader("System Overview")
-    st.code(
-        """
-    DATA SOURCES                    INGESTION              STORAGE & PROCESSING
-    +--------------+               +----------+           +--------------------+
-    | GPS Devices  |--+            |          |           |                    |
-    | (Vehicles)   |  |            |  Apache  |   Bronze  |   Spark Streaming  |
-    +--------------+  +----------->|  Kafka   |---------->|   (Schema valid,   |
-    | Scanner Apps |  |            |  (6      |           |    partitioning)   |
-    | (Hub Workers)|--+            |  topics) |           |                    |
-    +--------------+  |            |          |           +--------+-----------+
-    | Delivery App |--+            +----------+                    |
-    | (Agents)     |                                               v
-    +--------------+                                      +--------+-----------+
-                                                          |   Delta Lake       |
-                      ANALYTICS         GOLD              |   Bronze Layer     |
-                    +----------+   +-----------+          +--------+-----------+
-                    |          |   |           |                    |
-                    |Streamlit |<--|  DuckDB   |<--- dbt ---+      v
-                    |Dashboard |   |  (Star    |            | +----+-----------+
-                    |          |   |   Schema) |            | | Spark Batch    |
-                    +----------+   +-----------+            | | (Trip/Journey  |
-                                                            | |  Reconstruct) |
-                    +----------+   +-----------+            | +----+-----------+
-                    | Jupyter  |<--|  Airflow  |            |      |
-                    | Notebook |   | (2AM DAG) |------------+      v
-                    +----------+   +-----------+              +----+-----------+
-                                                              | Delta Lake     |
-                                                              | Silver Layer   |
-                                                              +----------------+
-    """,
-        language=None,
-    )
-
-    st.markdown("---")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Technology Stack")
-        tech = pd.DataFrame(
+        st.subheader("Feature to engineering map")
+        features = pd.DataFrame(
             {
-                "Layer": [
-                    "Messaging",
-                    "Stream Processing",
-                    "Batch Processing",
-                    "Storage",
-                    "Transformations",
-                    "Orchestration",
-                    "Data Quality",
-                    "Warehouse",
-                    "Dashboard",
-                    "Infrastructure",
-                ],
-                "Technology": [
-                    "Apache Kafka",
-                    "Spark Structured Streaming",
-                    "Apache Spark 3.5",
-                    "Delta Lake (ACID)",
-                    "dbt 1.7+",
-                    "Apache Airflow",
-                    "Custom Framework + dbt Tests",
-                    "DuckDB",
-                    "Streamlit + Plotly",
-                    "Docker Compose",
+                "Feature": ["Fleet", "Shipments", "Last mile", "Quality"],
+                "Engineering": [
+                    "GPS events -> trip reconstruction -> fct_trips",
+                    "Hub scans -> journey reconstruction -> fct_shipments",
+                    "Delivery attempts -> agent and zone marts",
+                    "Schema, freshness, and business-rule checks",
                 ],
             }
         )
-        st.dataframe(tech, use_container_width=True, hide_index=True)
+        st.dataframe(features, use_container_width=True, hide_index=True)
 
     with col2:
-        st.subheader("Data Model (Star Schema)")
+        st.subheader("Core marts")
         model = pd.DataFrame(
             {
                 "Table": [
@@ -1176,94 +1123,33 @@ def show_architecture():
                     "fct_hub_daily",
                     "fct_agent_daily",
                     "fct_zone_daily",
-                    "dim_time",
-                    "dim_hubs",
-                ],
-                "Module": [
-                    "Fleet",
-                    "Fleet",
-                    "Shipment",
-                    "Shipment",
-                    "Delivery",
-                    "Delivery",
-                    "Common",
-                    "Common",
                 ],
                 "Grain": [
-                    "Per trip",
-                    "Per driver/day",
-                    "Per shipment",
-                    "Per hub/day",
-                    "Per agent/day",
-                    "Per zone/day",
-                    "Date",
-                    "Hub",
+                    "trip",
+                    "driver/day",
+                    "shipment",
+                    "hub/day",
+                    "agent/day",
+                    "zone/day",
                 ],
             }
         )
         st.dataframe(model, use_container_width=True, hide_index=True)
 
-    st.markdown("---")
-    st.subheader("Medallion Architecture")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("### Bronze (Raw)")
-        st.markdown(
-            "- Raw Kafka events\n"
-            "- Schema validation\n"
-            "- Ingestion metadata\n"
-            "- Partitioned by date\n"
-            "- Delta Lake format"
-        )
-
-    with col2:
-        st.markdown("### Silver (Processed)")
-        st.markdown(
-            "- Trip reconstruction\n"
-            "- Journey reconstruction\n"
-            "- Agent shift aggregation\n"
-            "- Business logic applied\n"
-            "- Cleaned & validated"
-        )
-
-    with col3:
-        st.markdown("### Gold (Analytics)")
-        st.markdown(
-            "- dbt dimensional model\n"
-            "- 6 fact tables\n"
-            "- 2 dimension tables\n"
-            "- Star schema in DuckDB\n"
-            "- Optimized for queries"
-        )
-
-    st.markdown("---")
-    st.subheader("Key Features")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(
-            "**Fleet Telematics**\n"
-            "- GPS tracking (10s intervals)\n"
-            "- Trip reconstruction\n"
-            "- Driving event detection\n"
-            "- Fuel consumption modeling"
-        )
-    with col2:
-        st.markdown(
-            "**Shipment Tracking**\n"
-            "- Hub scan event pipeline\n"
-            "- Journey reconstruction\n"
-            "- SLA monitoring\n"
-            "- Bottleneck detection"
-        )
-    with col3:
-        st.markdown(
-            "**Last-Mile Delivery**\n"
-            "- Agent GPS tracking\n"
-            "- Shift aggregation\n"
-            "- Zone performance\n"
-            "- Customer satisfaction"
-        )
+    st.subheader("Full-stack path")
+    stack = pd.DataFrame(
+        {
+            "Layer": ["Events", "Bronze", "Silver", "Gold", "Serving"],
+            "Implementation": [
+                "simulators, Kafka topics",
+                "Spark ingestion, parquet/Delta-ready layout",
+                "trip, shipment, and shift reconstruction jobs",
+                "dbt marts in DuckDB with tests",
+                "Streamlit dashboard and data explorer",
+            ],
+        }
+    )
+    st.dataframe(stack, use_container_width=True, hide_index=True)
 
 
 # =============================================================================
@@ -1283,18 +1169,17 @@ def main():
         "Shipment Tracking": show_shipment_dashboard,
         "Last-Mile Delivery": show_delivery_dashboard,
         "Data Quality": show_data_quality,
-        "Architecture": show_architecture,
+        "Engineering": show_architecture,
     }
 
     selection = st.sidebar.radio("Go to", list(pages.keys()))
     pages[selection]()
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### About")
+    st.sidebar.markdown("### Project")
     st.sidebar.info(
-        "**Unified Logistics Data Platform**\n\n"
-        "Verified demo path:\n"
-        "Parquet | DuckDB | dbt | Quality Reports | Streamlit"
+        "**Logistics Data Platform**\n\n"
+        "Parquet -> DuckDB -> dbt -> quality reports -> Streamlit"
     )
     data_mode = "Sample bundle" if USING_SAMPLE else "Live parquet"
     st.sidebar.caption(f"Data mode: {data_mode}")
