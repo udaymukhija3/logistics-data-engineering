@@ -1,18 +1,8 @@
-"""Streamlit Community Cloud entrypoint.
+"""Streamlit Community Cloud and Hugging Face Spaces entrypoint.
 
-Streamlit Cloud expects a top-level entrypoint script. This file forwards to the
-real dashboard so the Cloud deploy and the local/Render Docker deploy share one
-codebase.
-
-Usage:
-    1. Push this repo to GitHub.
-    2. On https://streamlit.io/cloud, "New app" -> pick this repo.
-    3. Set "Main file path" to ``streamlit_app.py``.
-    4. Set "Python version" to 3.11 and "Requirements file" to
-       ``requirements-streamlit.txt``.
-
-The bundled ``data/sample`` directory is committed, so the app renders without
-any external infrastructure.
+Hosted Streamlit runtimes expect a top-level entrypoint script. This file
+forwards to the real dashboard so local, Docker, Streamlit Cloud, and Hugging
+Face Spaces deployments share one codebase.
 """
 
 from pathlib import Path

@@ -23,28 +23,41 @@ A modern logistics data platform: Streamlit dashboard backed by a Bronze/Silver/
 
 ## Live Demo
 
-- **Live dashboard (try it now):** <https://huggingface.co/spaces/umukhija/logistics-data-platform>
-- Public overview: <https://logistics-data-engineering.vercel.app>
+- **Recruiter link (send this one):** <https://logistics-data-engineering.vercel.app/>
 - Walkthrough script: see [docs/DEMO.md](docs/DEMO.md).
 
-The live dashboard is kept warm by a [scheduled GitHub Actions ping](.github/workflows/keepwarm.yml) so the first click responds in seconds, not minutes.
+That Vercel page is the canonical public demo. It explains the project, shows
+the operating metrics, and embeds the live Streamlit dashboard in one place.
+The Hugging Face Space is only the dashboard runtime behind the embedded frame,
+not a second link to send recruiters.
 
 ## Deploy In One Click
 
-The dashboard ships with four zero-config deploy paths. Each serves the bundled `data/sample/` dataset, so no external database is required.
+The public demo uses one recruiter-facing URL with two hosting pieces behind it:
 
-### Public overview (static)
+- **Vercel:** the canonical portfolio/demo page to share publicly.
+- **Hugging Face Spaces:** the Streamlit runtime embedded inside that page.
 
-The [public overview site](site/index.html) gives stakeholders a fast read on
-the operating problem, dashboard surface, platform architecture, current build
-evidence, and deployment paths without requiring the Streamlit runtime to be
-awake. It is deployed on Vercel.
+Each deploy path serves the bundled `data/sample/` dataset, so no external
+database is required.
 
-### Hugging Face Spaces (recommended for recruiters)
+### Canonical recruiter URL (Vercel)
 
-The primary live demo runs on Hugging Face Spaces. The Space config lives in
-the YAML front matter of this README (Hugging Face reads it, GitHub hides it),
-which means a one-time Space creation is all that's needed:
+The [public overview site](site/index.html) is the one link to share:
+
+<https://logistics-data-engineering.vercel.app/>
+
+It gives stakeholders a fast read on the operating problem, dashboard surface,
+platform architecture, current build evidence, and the embedded live dashboard
+without making them choose between hosts.
+
+### Hugging Face Spaces (dashboard runtime)
+
+The interactive Streamlit dashboard runs on Hugging Face Spaces and is embedded
+inside the Vercel page. Treat this as infrastructure for the canonical demo,
+not as the recruiter-facing URL. The Space config lives in the YAML front
+matter of this README (Hugging Face reads it, GitHub hides it), which means a
+one-time Space creation is all that's needed:
 
 1. Sign in at <https://huggingface.co> and click **New Space** → name it
    `logistics-data-platform`, SDK **Streamlit**, hardware **CPU basic (free)**.
@@ -61,9 +74,9 @@ which means a one-time Space creation is all that's needed:
    and serves `streamlit_app.py`. First build takes ~3 minutes; rebuilds are
    fast on incremental pushes.
 
-After the Space is live, set a repo variable named `DASHBOARD_URL` (Repo
-settings → Secrets and variables → Actions → Variables) to the Space URL so
-the keep-warm cron can hit it.
+After the Space is live, use the runtime URL ending in `.hf.space` as the
+iframe source in [site/index.html](site/index.html). The recruiter-facing link
+still stays on Vercel.
 
 ### Render (Docker, free tier)
 

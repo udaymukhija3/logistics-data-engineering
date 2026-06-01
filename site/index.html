@@ -8,6 +8,13 @@
       content="Unified Logistics Data Platform: a control-tower demo showing fleet movement, shipment SLAs, last-mile performance, and data quality computed from raw logistics events."
     />
     <title>Unified Logistics Data Platform</title>
+    <link rel="canonical" href="https://logistics-data-engineering.vercel.app/" />
+    <meta property="og:url" content="https://logistics-data-engineering.vercel.app/" />
+    <meta property="og:title" content="Unified Logistics Data Platform" />
+    <meta
+      property="og:description"
+      content="One recruiter-facing demo page for the logistics data platform, with the live dashboard embedded."
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -21,8 +28,8 @@
         <a href="#operations">Operations</a>
         <a href="#how">How it works</a>
       </nav>
-      <a class="header-cta" href="https://huggingface.co/spaces/umukhija/logistics-data-platform" target="_blank" rel="noopener">
-        Open dashboard →
+      <a class="header-cta" href="#dashboard">
+        View demo
       </a>
     </header>
 
@@ -37,11 +44,11 @@
             and served through an interactive dashboard.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
-            <a class="button primary" href="https://huggingface.co/spaces/umukhija/logistics-data-platform" target="_blank" rel="noopener">
-              Open the live dashboard
+            <a class="button primary" href="#dashboard">
+              View the live dashboard
             </a>
-            <a class="button ghost" href="#dashboard">
-              See it embedded
+            <a class="button ghost" href="#how">
+              See the architecture
             </a>
           </div>
           <p class="hero-meta">
@@ -174,13 +181,8 @@
           <p class="eyebrow">Live demo</p>
           <h2>The dashboard, right here.</h2>
           <p>
-            Hosted on Hugging Face Spaces from this repository's Docker image. Loads the
-            same sample dataset shown above. Cold starts take ~30 seconds.
-          </p>
-          <p class="embed-actions">
-            <a class="button primary" href="https://huggingface.co/spaces/umukhija/logistics-data-platform" target="_blank" rel="noopener">
-              Open in full screen ↗
-            </a>
+            The interactive dashboard is embedded in this page, so the public demo
+            stays a single link. It loads the same sample dataset shown above.
           </p>
         </div>
         <div class="embed-frame">
@@ -264,11 +266,11 @@
             <p class="footer-note">Lint, tests, dbt build, Docker build, dashboard render check.</p>
           </div>
           <div>
-            <p class="eyebrow">Live dashboard</p>
-            <a href="https://huggingface.co/spaces/umukhija/logistics-data-platform" target="_blank" rel="noopener">
-              Hugging Face Space
+            <p class="eyebrow">Interactive dashboard</p>
+            <a href="#dashboard">
+              Embedded above
             </a>
-            <p class="footer-note">Streamlit app served from this repo's Docker image.</p>
+            <p class="footer-note">The recruiter-facing demo stays on this page.</p>
           </div>
         </div>
         <p class="footer-credit">Built by Uday Mukhija &middot; data engineering portfolio</p>
